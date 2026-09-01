@@ -1,25 +1,51 @@
-require('dotenv').config({ path: './atlas-credentials.env' });
-const { MongoClient, ServerApiVersion } = require('mongodb');
+import dotenv from 'dotenv';
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { connectDb, closeDb } from './db.js';
+import pingRouter from './routes/ping.js';
+import usersRouter from './routes/users.js';
+dotenv.config({ path: path.join(__dirname, 'secrets/atlas-credentials.env'), quiet: true });
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
-const client = new MongoClient(process.env.MONGODB_URI, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  }
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.use(express.json());
+
+app.get('/', (_req, res) => {
+  res.send('Welcome to Crewly API');
 });
 
-async function run() {
-  try {
-    // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
-  } finally {
-    // Ensures that the client will close when you finish/error
-    await client.close();
-  }
+app.use('/ping', pingRouter);
+app.use('/users', usersRouter);
+
+app.use((_req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+app.use((err, _req, res, _next) => {
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+try {
+  await connectDb();
+  console.log('Connected to MongoDB');
+} catch (err) {
+  console.error('Failed to connect to MongoDB:', err.message);
+  process.exit(1);
 }
-run().catch(console.dir);
+
+const server = app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, async () => {
+    console.log(`${signal} received, shutting down`);
+    server.close();
+    await closeDb();
+  });
+}
