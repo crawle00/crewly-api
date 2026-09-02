@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { getDb } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { conflict, unauthorized } from '../middleware/errors.js';
+import { conflict, notFound, unauthorized } from '../middleware/errors.js';
 import { validate } from '../middleware/validate.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 
@@ -21,6 +21,18 @@ const registerSchema = z.object({
   bio: z.string().trim().nullish().default(null),
   interests: z.array(nonEmpty).default([]),
 });
+
+const updateProfileSchema = z
+  .object({
+    firstName: nonEmpty,
+    lastName: nonEmpty,
+    email,
+    pfp: z.string().nullable(),
+    bio: z.string().trim().nullable(),
+    interests: z.array(nonEmpty),
+  })
+  .partial()
+  .refine((data) => Object.keys(data).length > 0, { message: 'at least one field is required' });
 
 const loginSchema = z.object({
   email,
@@ -85,6 +97,26 @@ router.post('/logout', (req, res, next) => {
 
 router.get('/me', requireAuth, (req, res) => {
   res.json(publicUser(req.user));
+});
+
+router.patch('/me', requireAuth, validate({ body: updateProfileSchema }), async (req, res, next) => {
+  const updates = req.body;
+  const users = getDb().collection('users');
+
+  if (updates.email && updates.email !== req.user.email) {
+    if (await users.findOne({ email: updates.email, _id: { $ne: req.user._id } })) {
+      return next(conflict('email already registered'));
+    }
+  }
+
+  const user = await users.findOneAndUpdate(
+    { _id: req.user._id },
+    { $set: { ...updates, updatedAt: new Date() } },
+    { returnDocument: 'after', projection: { passwordHash: 0 } },
+  );
+  if (!user) return next(notFound('user not found'));
+
+  res.json(publicUser(user));
 });
 
 export default router;
