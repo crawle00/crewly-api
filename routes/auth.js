@@ -1,9 +1,30 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import { z } from 'zod';
 import { getDb } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { conflict, unauthorized } from '../middleware/errors.js';
+import { validate } from '../middleware/validate.js';
 
 const router = Router();
+
+const email = z.string().trim().toLowerCase().pipe(z.email());
+const nonEmpty = z.string().trim().min(1);
+
+const registerSchema = z.object({
+  firstName: nonEmpty,
+  lastName: nonEmpty,
+  email,
+  password: z.string().min(8),
+  pfp: z.string().nullish().default(null),
+  bio: z.string().trim().nullish().default(null),
+  interests: z.array(nonEmpty).default([]),
+});
+
+const loginSchema = z.object({
+  email,
+  password: z.string(),
+});
 
 export const publicUser = (u) => ({
   _id: u._id,
@@ -18,46 +39,24 @@ export const publicUser = (u) => ({
   timeline: u.timeline,
 });
 
-const normalizeInterests = (interests) => {
-  if (interests === undefined || interests === null) return [];
-  if (!Array.isArray(interests)) return null;
-  if (!interests.every((i) => typeof i === 'string')) return null;
-  return interests.map((i) => i.trim()).filter(Boolean);
-};
-
-router.post('/register', async (req, res) => {
-  const { firstName, lastName, email, password, pfp, bio, interests } = req.body ?? {};
-  if (!firstName || !lastName || !email || !password) {
-    return res.status(400).json({ error: 'firstName, lastName, email and password are required' });
-  }
-  if (pfp !== undefined && pfp !== null && typeof pfp !== 'string') {
-    return res.status(400).json({ error: 'pfp must be a string' });
-  }
-  if (bio !== undefined && bio !== null && typeof bio !== 'string') {
-    return res.status(400).json({ error: 'bio must be a string' });
-  }
-
-  const normalizedInterests = normalizeInterests(interests);
-  if (normalizedInterests === null) {
-    return res.status(400).json({ error: 'interests must be an array of strings' });
-  }
+router.post('/register', validate({ body: registerSchema }), async (req, res, next) => {
+  const { firstName, lastName, email, password, pfp, bio, interests } = req.body;
 
   const users = getDb().collection('users');
-  const normalizedEmail = String(email).trim().toLowerCase();
-  if (await users.findOne({ email: normalizedEmail })) {
-    return res.status(409).json({ error: 'email already registered' });
+  if (await users.findOne({ email })) {
+    return next(conflict('email already registered'));
   }
 
   const user = {
-    firstName: String(firstName).trim(),
-    lastName: String(lastName).trim(),
-    email: normalizedEmail,
+    firstName,
+    lastName,
+    email,
     passwordHash: await bcrypt.hash(password, 10),
     isAdmin: false,
     clubManagement: [],
-    pfp: pfp ?? null,
-    bio: bio ? String(bio).trim() : null,
-    interests: normalizedInterests,
+    pfp,
+    bio,
+    interests,
     timeline: [],
     createdAt: new Date(),
   };
@@ -67,21 +66,20 @@ router.post('/register', async (req, res) => {
   res.status(201).json(publicUser(user));
 });
 
-router.post('/login', async (req, res) => {
-  const { email, password } = req.body ?? {};
-  const normalizedEmail = String(email ?? '').trim().toLowerCase();
-  const user = await getDb().collection('users').findOne({ email: normalizedEmail });
+router.post('/login', validate({ body: loginSchema }), async (req, res, next) => {
+  const { email, password } = req.body;
+  const user = await getDb().collection('users').findOne({ email });
 
-  if (!user || !(await bcrypt.compare(password ?? '', user.passwordHash ?? ''))) {
-    return res.status(401).json({ error: 'invalid credentials' });
+  if (!user || !(await bcrypt.compare(password, user.passwordHash ?? ''))) {
+    return next(unauthorized('invalid credentials'));
   }
 
   req.session.userId = user._id.toString();
   res.json(publicUser(user));
 });
 
-router.post('/logout', (req, res) => {
-  req.session.destroy(() => res.status(204).end());
+router.post('/logout', (req, res, next) => {
+  req.session.destroy((err) => (err ? next(err) : res.status(204).end()));
 });
 
 router.get('/me', requireAuth, (req, res) => {

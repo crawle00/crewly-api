@@ -1,5 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from '../db.js';
+import { forbidden, unauthorized } from './errors.js';
 
 export async function loadUser(req, _res, next) {
   if (req.session?.userId) {
@@ -11,24 +12,24 @@ export async function loadUser(req, _res, next) {
   next();
 }
 
-export function requireAuth(req, res, next) {
-  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+export function requireAuth(req, _res, next) {
+  if (!req.user) return next(unauthorized());
   next();
 }
 
-export function requireAdmin(req, res, next) {
+export function requireAdmin(req, _res, next) {
   if (!req.user?.isAdmin) {
-    return res.status(403).json({ error: 'Forbidden' });
+    return next(forbidden());
   }
   next();
 }
 
 export function requireClubManager(clubIdParam = 'clubId') {
-  return (req, res, next) => {
+  return (req, _res, next) => {
     const clubId = req.params?.[clubIdParam];
     const manages = req.user?.clubManagement?.some((id) => String(id) === String(clubId));
     if (!req.user?.isAdmin && !manages) {
-      return res.status(403).json({ error: 'Forbidden' });
+      return next(forbidden());
     }
     next();
   };

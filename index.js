@@ -1,11 +1,12 @@
 import dotenv from 'dotenv';
-import express from 'express';
+import express, { Router } from 'express';
 import session from 'express-session';
 import MongoStore from 'connect-mongo';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { connectDb, closeDb, getClient } from './db.js';
 import { loadUser, requireAuth } from './middleware/auth.js';
+import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import authRouter from './routes/auth.js';
 import pingRouter from './routes/ping.js';
 import usersRouter from './routes/users.js';
@@ -44,18 +45,16 @@ app.get('/', (_req, res) => {
   res.send('Welcome to Crewly API');
 });
 
+// Unversioned: container health checks must not break when the API version bumps.
 app.use('/ping', pingRouter);
-app.use('/auth', authRouter);
-app.use('/users', requireAuth, usersRouter);
 
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Not found' });
-});
+const v1 = Router();
+v1.use('/auth', authRouter);
+v1.use('/users', requireAuth, usersRouter);
+app.use('/api/v1', v1);
 
-app.use((err, _req, res, _next) => {
-  console.error(err);
-  res.status(500).json({ error: 'Internal server error' });
-});
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 const server = app.listen(port, () => {
   console.log(`Server running on port ${port}`);
