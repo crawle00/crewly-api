@@ -5,27 +5,60 @@ import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
-const publicUser = (u) => ({
-  _id: u._id, name: u.name, email: u.email, orgId: u.orgId, role: u.role,
+export const publicUser = (u) => ({
+  _id: u._id,
+  firstName: u.firstName,
+  lastName: u.lastName,
+  email: u.email,
+  isAdmin: u.isAdmin,
+  clubManagement: u.clubManagement,
+  pfp: u.pfp,
+  bio: u.bio,
+  interests: u.interests,
+  timeline: u.timeline,
 });
 
+const normalizeInterests = (interests) => {
+  if (interests === undefined || interests === null) return [];
+  if (!Array.isArray(interests)) return null;
+  if (!interests.every((i) => typeof i === 'string')) return null;
+  return interests.map((i) => i.trim()).filter(Boolean);
+};
+
 router.post('/register', async (req, res) => {
-  const { name, email, password, orgId } = req.body ?? {};
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: 'name, email and password are required' });
+  const { firstName, lastName, email, password, pfp, bio, interests } = req.body ?? {};
+  if (!firstName || !lastName || !email || !password) {
+    return res.status(400).json({ error: 'firstName, lastName, email and password are required' });
+  }
+  if (pfp !== undefined && pfp !== null && typeof pfp !== 'string') {
+    return res.status(400).json({ error: 'pfp must be a string' });
+  }
+  if (bio !== undefined && bio !== null && typeof bio !== 'string') {
+    return res.status(400).json({ error: 'bio must be a string' });
+  }
+
+  const normalizedInterests = normalizeInterests(interests);
+  if (normalizedInterests === null) {
+    return res.status(400).json({ error: 'interests must be an array of strings' });
   }
 
   const users = getDb().collection('users');
-  if (await users.findOne({ email })) {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  if (await users.findOne({ email: normalizedEmail })) {
     return res.status(409).json({ error: 'email already registered' });
   }
 
   const user = {
-    name,
-    email,
+    firstName: String(firstName).trim(),
+    lastName: String(lastName).trim(),
+    email: normalizedEmail,
     passwordHash: await bcrypt.hash(password, 10),
-    orgId: orgId || 'default',
-    role: 'member',
+    isAdmin: false,
+    clubManagement: [],
+    pfp: pfp ?? null,
+    bio: bio ? String(bio).trim() : null,
+    interests: normalizedInterests,
+    timeline: [],
     createdAt: new Date(),
   };
   user._id = (await users.insertOne(user)).insertedId;
@@ -36,7 +69,8 @@ router.post('/register', async (req, res) => {
 
 router.post('/login', async (req, res) => {
   const { email, password } = req.body ?? {};
-  const user = await getDb().collection('users').findOne({ email });
+  const normalizedEmail = String(email ?? '').trim().toLowerCase();
+  const user = await getDb().collection('users').findOne({ email: normalizedEmail });
 
   if (!user || !(await bcrypt.compare(password ?? '', user.passwordHash ?? ''))) {
     return res.status(401).json({ error: 'invalid credentials' });
@@ -51,7 +85,7 @@ router.post('/logout', (req, res) => {
 });
 
 router.get('/me', requireAuth, (req, res) => {
-  res.json(req.user);
+  res.json(publicUser(req.user));
 });
 
 export default router;

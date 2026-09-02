@@ -16,9 +16,18 @@ export function requireAuth(req, res, next) {
   next();
 }
 
-export function requireRole(...roles) {
+export function requireAdmin(req, res, next) {
+  if (!req.user?.isAdmin) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  next();
+}
+
+export function requireClubManager(clubIdParam = 'clubId') {
   return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    const clubId = req.params?.[clubIdParam];
+    const manages = req.user?.clubManagement?.some((id) => String(id) === String(clubId));
+    if (!req.user?.isAdmin && !manages) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     next();
