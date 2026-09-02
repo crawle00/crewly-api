@@ -23,60 +23,87 @@ if (!sessionSecret || sessionSecret.length < 32) {
   process.exit(1);
 }
 
-try {
-  await connectDb();
-  console.log('Connected to MongoDB');
-} catch (err) {
-  console.error('Failed to connect to MongoDB:', err.message);
-  process.exit(1);
+export async function createApp(testDb) {
+  const app = express();
+  if (process.env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+  }
+
+  const corsOrigins = (process.env.CORS_ORIGINS).split(',').map((o) => o.trim()).filter(Boolean);
+
+  app.use(helmet());
+  app.use(cors({ origin: corsOrigins, credentials: true }));
+  app.use(globalLimiter);
+  app.use(express.json());
+
+  if (testDb) {
+    app.use(session({
+      secret: sessionSecret,
+      resave: false,
+      saveUninitialized: false,
+      store: new (await import('connect-mongo')).default({ client: global.testDbClient, dbName: 'test' }),
+      cookie: {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000,
+      },
+    }));
+  } else {
+    app.use(session({
+      secret: sessionSecret,
+      resave: false,
+      saveUninitialized: false,
+      store: MongoStore.create({ client: getClient(), dbName: 'crewly', ttl: 24 * 60 * 60 }),
+      cookie: {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000,
+      },
+    }));
+  }
+
+  app.use(loadUser);
+
+  app.get('/', (_req, res) => {
+    res.send('Welcome to Crewly API');
+  });
+
+  app.use('/ping', pingRouter);
+
+  const v1 = Router();
+  v1.use('/auth', authRouter);
+  v1.use('/users', requireAuth, usersRouter);
+  app.use('/api/v1', v1);
+
+  app.use(notFoundHandler);
+  app.use(errorHandler);
+
+  return app;
 }
 
-const app = express();
-const port = process.env.PORT || 3000;
+if (process.env.NODE_ENV !== 'test') {
+  try {
+    await connectDb();
+    console.log('Connected to MongoDB');
+  } catch (err) {
+    console.error('Failed to connect to MongoDB:', err.message);
+    process.exit(1);
+  }
 
-// UI (:8080) and API (:3000) are different origins, so the browser needs
-// explicit CORS with credentials for the session cookie to be sent.
-const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:8080')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
+  const app = await createApp();
+  const port = process.env.PORT;
 
-app.use(helmet());
-app.use(cors({ origin: corsOrigins, credentials: true }));
-app.use(globalLimiter);
-app.use(express.json());
-app.use(session({
-  secret: sessionSecret,
-  resave: false,
-  saveUninitialized: false,
-  store: MongoStore.create({ client: getClient(), dbName: 'crewly', ttl: 24 * 60 * 60 }),
-  cookie: { httpOnly: true, sameSite: 'lax', maxAge: 24 * 60 * 60 * 1000 },
-}));
-app.use(loadUser);
-
-app.get('/', (_req, res) => {
-  res.send('Welcome to Crewly API');
-});
-
-// Unversioned: container health checks must not break when the API version bumps.
-app.use('/ping', pingRouter);
-
-const v1 = Router();
-v1.use('/auth', authRouter);
-v1.use('/users', requireAuth, usersRouter);
-app.use('/api/v1', v1);
-
-app.use(notFoundHandler);
-app.use(errorHandler);
-
-const server = app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
-
-for (const signal of ['SIGTERM', 'SIGINT']) {
-  process.on(signal, async () => {
-    console.log(`${signal} received, shutting down`);
-    server.close();
-    await closeDb();
+  const server = app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
   });
+
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    process.on(signal, async () => {
+      console.log(`${signal} received, shutting down`);
+      server.close();
+      await closeDb();
+    });
+  }
 }
