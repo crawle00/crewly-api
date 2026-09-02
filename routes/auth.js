@@ -5,6 +5,7 @@ import { getDb } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { conflict, unauthorized } from '../middleware/errors.js';
 import { validate } from '../middleware/validate.js';
+import { authLimiter } from '../middleware/rateLimit.js';
 
 const router = Router();
 
@@ -39,7 +40,7 @@ export const publicUser = (u) => ({
   timeline: u.timeline,
 });
 
-router.post('/register', validate({ body: registerSchema }), async (req, res, next) => {
+router.post('/register', authLimiter, validate({ body: registerSchema }), async (req, res, next) => {
   const { firstName, lastName, email, password, pfp, bio, interests } = req.body;
 
   const users = getDb().collection('users');
@@ -66,7 +67,7 @@ router.post('/register', validate({ body: registerSchema }), async (req, res, ne
   res.status(201).json(publicUser(user));
 });
 
-router.post('/login', validate({ body: loginSchema }), async (req, res, next) => {
+router.post('/login', authLimiter, validate({ body: loginSchema }), async (req, res, next) => {
   const { email, password } = req.body;
   const user = await getDb().collection('users').findOne({ email });
 

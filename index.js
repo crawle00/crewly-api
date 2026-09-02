@@ -1,5 +1,7 @@
 import dotenv from 'dotenv';
 import express, { Router } from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
 import session from 'express-session';
 import MongoStore from 'connect-mongo';
 import path from 'path';
@@ -7,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { connectDb, closeDb, getClient } from './db.js';
 import { loadUser, requireAuth } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
+import { globalLimiter } from './middleware/rateLimit.js';
 import authRouter from './routes/auth.js';
 import pingRouter from './routes/ping.js';
 import usersRouter from './routes/users.js';
@@ -31,6 +34,16 @@ try {
 const app = express();
 const port = process.env.PORT || 3000;
 
+// UI (:8080) and API (:3000) are different origins, so the browser needs
+// explicit CORS with credentials for the session cookie to be sent.
+const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:8080')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(helmet());
+app.use(cors({ origin: corsOrigins, credentials: true }));
+app.use(globalLimiter);
 app.use(express.json());
 app.use(session({
   secret: sessionSecret,
