@@ -15,14 +15,12 @@ export async function connectDb() {
   await client.connect();
   await client.db('admin').command({ ping: 1 });
 
-  db = client.db(process.env.MONGODB_DB || 'crewly');
+  db = client.db('crewly');
   return db;
 }
 
 export function getDb() {
-  if (!db) {
-    throw new Error('connectDb() must be called before getDb()');
-  }
+  if (!db) throw new Error('Connect to the database first.');
   return db;
 }
 
