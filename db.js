@@ -25,6 +25,9 @@ export function getClient() {
 }
 
 export function getDb() {
+  if (process.env.NODE_ENV === 'test' && global.testDb) {
+    return global.testDb;
+  }
   if (!db) throw new Error('Connect to the database first.');
   return db;
 }
