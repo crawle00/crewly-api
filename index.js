@@ -1,9 +1,10 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import session from 'express-session';
+import MongoStore from 'connect-mongo';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { connectDb, closeDb } from './db.js';
+import { connectDb, closeDb, getClient } from './db.js';
 import { loadUser, requireAuth } from './middleware/auth.js';
 import authRouter from './routes/auth.js';
 import pingRouter from './routes/ping.js';
@@ -12,14 +13,29 @@ import usersRouter from './routes/users.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, 'secrets/atlas-credentials.env'), quiet: true });
 
+const sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret || sessionSecret.length < 32) {
+  console.error('SESSION_SECRET must be set and at least 32 characters long');
+  process.exit(1);
+}
+
+try {
+  await connectDb();
+  console.log('Connected to MongoDB');
+} catch (err) {
+  console.error('Failed to connect to MongoDB:', err.message);
+  process.exit(1);
+}
+
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(session({
-  secret: process.env.SESSION_SECRET,
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
+  store: MongoStore.create({ client: getClient(), dbName: 'crewly', ttl: 24 * 60 * 60 }),
   cookie: { httpOnly: true, sameSite: 'lax', maxAge: 24 * 60 * 60 * 1000 },
 }));
 app.use(loadUser);
@@ -40,14 +56,6 @@ app.use((err, _req, res, _next) => {
   console.error(err);
   res.status(500).json({ error: 'Internal server error' });
 });
-
-try {
-  await connectDb();
-  console.log('Connected to MongoDB');
-} catch (err) {
-  console.error('Failed to connect to MongoDB:', err.message);
-  process.exit(1);
-}
 
 const server = app.listen(port, () => {
   console.log(`Server running on port ${port}`);

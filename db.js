@@ -19,6 +19,11 @@ export async function connectDb() {
   return db;
 }
 
+export function getClient() {
+  if (!client) throw new Error('Connect to the database first.');
+  return client;
+}
+
 export function getDb() {
   if (!db) throw new Error('Connect to the database first.');
   return db;
