@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "test": "NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js --forceExit"
+    "test": "cross-env NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js --forceExit"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -19,6 +19,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "cross-env": "^10.1.0",
     "jest": "^30.5.1",
     "mongodb-memory-server": "^11.2.0",
     "supertest": "^7.2.2"

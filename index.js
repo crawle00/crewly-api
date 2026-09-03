@@ -12,6 +12,8 @@ import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { globalLimiter } from './middleware/rateLimit.js';
 import authRouter from './routes/auth.js';
 import pingRouter from './routes/ping.js';
+import clubsRouter from './routes/clubs.js';
+import jobsRouter from './routes/jobs.js';
 import usersRouter from './routes/users.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,7 +31,7 @@ export async function createApp(testDb) {
     app.set('trust proxy', 1);
   }
 
-  const corsOrigins = (process.env.CORS_ORIGINS).split(',').map((o) => o.trim()).filter(Boolean);
+  const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:8080').split(',').map((o) => o.trim()).filter(Boolean);
 
   app.use(helmet());
   app.use(cors({ origin: corsOrigins, credentials: true }));
@@ -74,6 +76,8 @@ export async function createApp(testDb) {
 
   const v1 = Router();
   v1.use('/auth', authRouter);
+  v1.use('/clubs', requireAuth, clubsRouter);
+  v1.use('/jobs', requireAuth, jobsRouter);
   v1.use('/users', requireAuth, usersRouter);
   app.use('/api/v1', v1);
 
