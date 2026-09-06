@@ -15,6 +15,8 @@ import pingRouter from './routes/ping.js';
 import clubsRouter from './routes/clubs.js';
 import jobsRouter from './routes/jobs.js';
 import usersRouter from './routes/users.js';
+import faqRouter from './routes/faq.js';
+import reportsRouter from './routes/reports.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, 'secrets/atlas-credentials.env'), quiet: true });
@@ -78,6 +80,8 @@ export async function createApp(testDb) {
   v1.use('/auth', authRouter);
   v1.use('/clubs', requireAuth, clubsRouter);
   v1.use('/jobs', requireAuth, jobsRouter);
+  v1.use('/faq' , requireAuth, faqRouter);
+  v1.use('/reports' , requireAuth, reportsRouter);
   v1.use('/users', requireAuth, usersRouter);
   app.use('/api/v1', v1);
 
