@@ -31,6 +31,15 @@ const listQuerySchema = z.object({
 
 const withoutPasswordHash = ({ passwordHash: _passwordHash, ...user }) => user;
 
+router.get('/:id', validate({params: clubParamsSchema}), async (req, res, next) => {
+	const club = await getDb().collection('clubs').findOne({
+		_id: new ObjectId(req.params.id)
+	})
+
+	if(!club) return next(notFound('club not found'))
+	res.json(club)
+})
+
 router.use(requireAdmin);
 
 router.get('/', validate({ query: listQuerySchema }), async (req, res) => {
