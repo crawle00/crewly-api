@@ -124,6 +124,24 @@ describe('Club administration', () => {
   });
 });
 
+describe('Managed clubs', () => {
+   it('lists clubs managed by the authenticated user', async () => {
+    const manager = await authenticatedRequest('manager@example.com');
+    const managerUser = await global.testDb.collection('users').findOne({ email: 'manager@example.com' });
+    const admin = await adminRequest();
+    const clubRes = await admin.post('/api/v1/clubs').send({ name: 'Managed Club' });
+
+    await admin.put(`/api/v1/clubs/${clubRes.body._id}/leaders/${managerUser._id}`);
+
+    const res = await manager.get('/api/v1/clubs/managed');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([
+      expect.objectContaining({ _id: clubRes.body._id, name: 'Managed Club' }),
+    ]);
+  });
+});
+
 describe('Club leader management', () => {
   it('adds a user to club leadership and clubManagement', async () => {
     const target = await createTargetUser();
