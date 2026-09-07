@@ -1,8 +1,8 @@
 import { Router } from "express"
 import { ObjectId} from "mongodb"
 import { z } from 'zod'
-import { getDb } from "../db"
-import { validate } from "../middleware/validate"
+import { getDb } from "../db.js"
+import { validate } from "../middleware/validate.js"
 
 const router = Router()
 
@@ -15,7 +15,7 @@ const listingParamsSchema = z.object({
     listingId: z.string().refine((id) => ObjectId.isValid(id), 'invalid listing id')
 })
 
-router.post('/' , validate({body: faqSchema}), validate({params: listingParamsSchema}), async (req , res) => {
+router.post('/' , validate({body: faqSchema}), async (req , res) => {
     const {listingId , question} = req.body
     const listing = await getDb().collection('listings').findOne({
         _id: new ObjectId(listingId)
@@ -40,9 +40,42 @@ router.get('/:listingId' , async(req , res) => {
     const {listingId} = req.params
 
     const questions = await getDb().collection('questions')
-        .find({listingId: new ObjectId(listingId)})
-        .sort({createdAt: 1})
-        .toArray()
+        .aggregate([
+            {
+                $match: {
+                    listingId: new ObjectId(listingId)
+                }
+            },
+            {
+                $sort: {
+                    createdAt: 1
+                }
+            },
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: 'userId',
+                    foreignField: '_id',
+                    as: 'user'
+                }
+            },
+            {
+                $unwind: {
+                    path: '$user',
+                    preserveNullAndEmptyArrays: true
+                }
+            },
+            {
+                $project: {
+                    _id: 1,
+                    listingId: 1,
+                    question: 1,
+                    createdAt: 1,
+                    firstName: '$user.firstName',
+                    lastName: '$user.lastName'
+                }
+            }
+        ]) .toArray()
 
         res.json(questions)
 })

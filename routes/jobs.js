@@ -195,4 +195,35 @@ router.get('/listing/:id', validate({ params: listingParamsSchema }), async (req
 	res.json(listing);
 });
 
+router.get('/:listing/:id/volunteers' , validate({params: listingParamsSchema}), async (req , res , next) => {
+    const listing = await getDb().collection('listings').findOne({
+        _id: new ObjectId(req.params.id)
+    })
+
+    if (!listing) {
+        return res.status(404).json({error: 'listing not found'})
+    }
+
+    const volunteers = await getDb().collection('users').find({
+        _id: {$in: listing.volunteers}
+    })
+    .project({
+        firstName: 1, 
+        lastName: 1,
+        pfp: 1
+    }).toArray()
+
+    res.json(volunteers)
+})
+
+router.post('/listing/:id/volunteers' , validate({params: listingParamsSchema}), async (req, res, next) => {
+	const listings = getDb().collection('listings')
+
+	const result = await listings.findOneAndUpdate(
+		{ _id: new ObjectId(req.params.id) },
+		{ $addToSet: {volunteers: req.user._id} },
+		{ returnDocument: "after" }
+	)
+})
+
 export default router;
