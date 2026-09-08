@@ -31,6 +31,15 @@ const listQuerySchema = z.object({
 
 const withoutPasswordHash = ({ passwordHash: _passwordHash, ...user }) => user;
 
+router.get('/managed', async (req, res) => {
+	const clubManagement = req.user.clubManagement ?? [];
+	const clubs = await getDb().collection('clubs').find({
+		_id: { $in: clubManagement.map((id) => new ObjectId(id)) },
+	}).sort({ name: 1, _id: 1 }).toArray();
+
+	res.json({ data: clubs });
+});
+
 router.get('/:id', validate({params: clubParamsSchema}), async (req, res, next) => {
 	const club = await getDb().collection('clubs').findOne({
 		_id: new ObjectId(req.params.id)
