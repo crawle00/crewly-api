@@ -103,7 +103,9 @@ router.get('/:listingId' , async(req , res) => {
                                 createdAt: 1,
                                 firstName: '$replyUser.firstName',
                                 lastName: '$replyUser.lastName',
-                                pfp: '$replyUser.pfp'
+                                pfp: '$replyUser.pfp',
+                                parentReplyId: 1,
+                                questionId: 1
                             }
                         }
                     ], as: "replies"
@@ -132,7 +134,7 @@ router.get('/:listingId' , async(req , res) => {
 
 router.post('/:questionId/replies', async (req, res) => {
     const { questionId } = req.params
-    const { reply } = req.body
+    const { reply , parentReplyId } = req.body
 
     const question = await getDb().collection('questions').findOne({
         _id: new ObjectId(questionId)
@@ -142,20 +144,37 @@ router.post('/:questionId/replies', async (req, res) => {
         return res.status(404).json({ error: 'question not found' })
     }
 
+    let parentId = null
+
+    if(parentReplyId) {
+            if (!ObjectId.isValid(parentReplyId)) {
+                return res.status(400).json({error: 'invalid parent reply id'})
+            }
+
+        const parentReply = await getDb().collection('replies').findOne({
+            _id: new ObjectId(parentReplyId),
+            questionId: new ObjectId(questionId)
+        })
+
+        if (!parentReply) {
+            return res.status(404).json({error: 'parent reply not found'})
+        }
+
+        parentId = new ObjectId(parentReplyId)
+    }
+
     const newReply = {
         questionId: new ObjectId(questionId),
         userId: req.user._id,
         reply,
-        createdAt: new Date()
+        createdAt: new Date(),
+        parentReplyId: parentId
     }
 
     newReply._id = (
         await getDb().collection('replies').insertOne(newReply)
     ).insertedId
 
-    if (!question) {
-            return res.status(404).json({error: 'question not found'})
-        }
     res.status(201).json(newReply)
 })
 

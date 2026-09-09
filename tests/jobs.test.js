@@ -357,4 +357,199 @@ describe('PATCH /api/v1/jobs/listing/:id', () => {
 
     expect(res.status).toBe(403);
   });
+
+  describe('GET /api/v1/jobs/listing/:id/volunteers', () => {
+  it('returns the volunteers for a listing', async () => {
+    const { admin, club } = await createClub();
+    const leader = await createUser();
+
+    await admin.put(`/api/v1/clubs/${club._id}/leaders/${leader._id}`);
+
+    const leaderAgent = request.agent(app);
+    await leaderAgent.post('/api/v1/auth/login').send({
+      email: 'leader@example.com',
+      password: 'password123',
+    });
+
+    const created = await leaderAgent
+      .post('/api/v1/jobs/list')
+      .send({ ...listingDetails, clubId: club._id });
+
+    const volunteer = await authenticatedRequest('volunteer@example.com');
+
+    const volunteerUser = await global.testDb
+      .collection('users')
+      .findOne({ email: 'volunteer@example.com' });
+
+    await global.testDb.collection('listings').updateOne(
+      { _id: new ObjectId(created.body._id) },
+      { $set: { volunteers: [volunteerUser._id] } },
+    );
+
+    const res = await volunteer.get(
+      `/api/v1/jobs/listing/${created.body._id}/volunteers`,
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      expect.objectContaining({
+        firstName: 'Viewer',
+        lastName: 'User',
+      }),
+    ]);
+  });
+
+  it('returns not found for an unknown listing', async () => {
+    const viewer = await authenticatedRequest('volunteer-reader@example.com');
+
+    const res = await viewer.get(
+      `/api/v1/jobs/listing/${new ObjectId()}/volunteers`,
+    );
+
+    expect(res.status).toBe(404);
+  });
+});
+
+
+describe('POST /api/v1/jobs/listing/:id/volunteers', () => {
+  async function createVolunteerListing() {
+    const { admin, club } = await createClub();
+    const leader = await createUser();
+
+    await admin.put(`/api/v1/clubs/${club._id}/leaders/${leader._id}`);
+
+    const leaderAgent = request.agent(app);
+    await leaderAgent.post('/api/v1/auth/login').send({
+      email: 'leader@example.com',
+      password: 'password123',
+    });
+
+    const created = await leaderAgent
+      .post('/api/v1/jobs/list')
+      .send({ ...listingDetails, clubId: club._id });
+
+    return { leaderAgent, listing: created.body };
+  }
+
+  it('adds the authenticated user as a volunteer', async () => {
+    const { listing } = await createVolunteerListing();
+    const volunteer = await authenticatedRequest('volunteer@example.com');
+
+    const res = await volunteer.post(
+      `/api/v1/jobs/listing/${listing._id}/volunteers`,
+    );
+
+    expect(res.status).toBe(200);
+
+    const updated = await global.testDb.collection('listings').findOne({
+      _id: new ObjectId(listing._id),
+    });
+
+    const volunteerUser = await global.testDb.collection('users').findOne({
+      email: 'volunteer@example.com',
+    });
+
+    expect(updated.volunteers).toContainEqual(volunteerUser._id);
+  });
+
+  it('does not add the same user twice', async () => {
+    const { listing } = await createVolunteerListing();
+    const volunteer = await authenticatedRequest('volunteer@example.com');
+
+    await volunteer.post(
+      `/api/v1/jobs/listing/${listing._id}/volunteers`,
+    );
+
+    await volunteer.post(
+      `/api/v1/jobs/listing/${listing._id}/volunteers`,
+    );
+
+    const updated = await global.testDb.collection('listings').findOne({
+      _id: new ObjectId(listing._id),
+    });
+
+    const volunteerUser = await global.testDb.collection('users').findOne({
+      email: 'volunteer@example.com',
+    });
+
+    expect(updated.volunteers).toEqual([volunteerUser._id]);
+  });
+});
+
+
+describe('DELETE /api/v1/jobs/listing/:id/volunteers', () => {
+  async function createVolunteerListing() {
+    const { admin, club } = await createClub();
+    const leader = await createUser();
+
+    await admin.put(`/api/v1/clubs/${club._id}/leaders/${leader._id}`);
+
+    const leaderAgent = request.agent(app);
+    await leaderAgent.post('/api/v1/auth/login').send({
+      email: 'leader@example.com',
+      password: 'password123',
+    });
+
+    const created = await leaderAgent
+      .post('/api/v1/jobs/list')
+      .send({ ...listingDetails, clubId: club._id });
+
+    return created.body;
+  }
+
+  it('removes the authenticated user from the volunteers list', async () => {
+    const listing = await createVolunteerListing();
+    const volunteer = await authenticatedRequest('volunteer@example.com');
+
+    const volunteerUser = await global.testDb.collection('users').findOne({
+      email: 'volunteer@example.com',
+    });
+
+    await global.testDb.collection('listings').updateOne(
+      { _id: new ObjectId(listing._id) },
+      { $set: { volunteers: [volunteerUser._id] } },
+    );
+
+    const res = await volunteer.delete(
+      `/api/v1/jobs/listing/${listing._id}/volunteers`,
+    );
+
+    expect(res.status).toBe(200);
+
+    const updated = await global.testDb.collection('listings').findOne({
+      _id: new ObjectId(listing._id),
+    });
+
+    expect(updated.volunteers).toEqual([]);
+  });
+
+  it('does nothing if the authenticated user is not a volunteer', async () => {
+    const listing = await createVolunteerListing();
+    const volunteer = await authenticatedRequest('volunteer@example.com');
+
+    const otherUser = await global.testDb.collection('users').insertOne({
+      firstName: 'Other',
+      lastName: 'Volunteer',
+      email: 'other@example.com',
+      passwordHash: 'test',
+    });
+
+    await global.testDb.collection('listings').updateOne(
+      { _id: new ObjectId(listing._id) },
+      { $set: { volunteers: [otherUser.insertedId] } },
+    );
+
+    const res = await volunteer.delete(
+      `/api/v1/jobs/listing/${listing._id}/volunteers`,
+    );
+
+    expect(res.status).toBe(200);
+
+    const updated = await global.testDb.collection('listings').findOne({
+      _id: new ObjectId(listing._id),
+    });
+
+    expect(updated.volunteers).toEqual([otherUser.insertedId]);
+  });
+});
 });
