@@ -79,7 +79,7 @@ export async function createApp(testDb) {
   const v1 = Router();
   v1.use('/auth', authRouter);
   v1.use('/clubs', requireAuth, clubsRouter);
-  v1.use('/jobs', requireAuth, jobsRouter);
+  v1.use('/jobs', jobsRouter);
   v1.use('/faq' , requireAuth, faqRouter);
   v1.use('/reports' , requireAuth, reportsRouter);
   v1.use('/users', requireAuth, usersRouter);

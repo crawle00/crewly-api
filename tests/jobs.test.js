@@ -193,6 +193,15 @@ describe('GET /api/v1/jobs/listings', () => {
     return { clubOneId, clubTwoId };
   }
 
+  it('allows unauthenticated users to browse listings', async () => {
+    await seedListings();
+
+    const res = await request(app).get('/api/v1/jobs/listings');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((listing) => listing.title)).toEqual(['Robot build', 'Garden cleanup']);
+  });
+
   it('filters tags with any or all matching and filters by club', async () => {
     const { clubOneId } = await seedListings();
     const viewer = await authenticatedRequest('listing-reader@example.com');
@@ -204,6 +213,29 @@ describe('GET /api/v1/jobs/listings', () => {
     expect(any.body.data.map((listing) => listing.title)).toEqual(['Robot build']);
     expect(all.status).toBe(200);
     expect(all.body.data.map((listing) => listing.title)).toEqual(['Robot build']);
+  });
+
+  it('sorts listings by title in either direction', async () => {
+    await seedListings();
+    await global.testDb.collection('listings').insertMany([
+      {
+        _id: new ObjectId(), title: 'alpha', startsAt: new Date('2099-01-04T10:00:00Z'),
+        endsAt: new Date('2099-01-04T12:00:00Z'), createdAt: new Date('2026-01-04'), isCancelled: false,
+      },
+      {
+        _id: new ObjectId(), title: 'Zulu', startsAt: new Date('2099-01-05T10:00:00Z'),
+        endsAt: new Date('2099-01-05T12:00:00Z'), createdAt: new Date('2026-01-05'), isCancelled: false,
+      },
+    ]);
+    const viewer = await authenticatedRequest('title-reader@example.com');
+
+    const ascending = await viewer.get('/api/v1/jobs/listings?sort=title&order=asc');
+    const descending = await viewer.get('/api/v1/jobs/listings?sort=title&order=desc');
+
+    expect(ascending.status).toBe(200);
+    expect(ascending.body.data.map((listing) => listing.title)).toEqual(['alpha', 'Garden cleanup', 'Robot build', 'Zulu']);
+    expect(descending.status).toBe(200);
+    expect(descending.body.data.map((listing) => listing.title)).toEqual(['Zulu', 'Robot build', 'Garden cleanup', 'alpha']);
   });
 
   it('sorts and paginates listings and excludes cancelled listings', async () => {

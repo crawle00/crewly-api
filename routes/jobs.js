@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { getDb } from '../db.js';
 import { forbidden, notFound } from '../middleware/errors.js';
+import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 
 const router = Router();
@@ -88,7 +89,7 @@ const browseQuerySchema = z.object({
 	order: z.enum(['asc', 'desc']).default('asc'),
 }).strict();
 
-router.post('/list', validate({ body: listingSchema }), async (req, res, next) => {
+router.post('/list', requireAuth, validate({ body: listingSchema }), async (req, res, next) => {
 	const { clubId, ...listingDetails } = req.body;
 	const clubs = getDb().collection('clubs');
 	const clubObjectId = new ObjectId(clubId);
@@ -145,8 +146,9 @@ router.get('/listings', validate({ query: browseQuerySchema }), async (req, res)
 			: { startsAt: direction, _id: 1 };
 	const listings = getDb().collection('listings');
 	const total = await listings.countDocuments(filter);
-	const data = await listings.find(filter)
-		.sort(sortSpec)
+	const listingQuery = listings.find(filter).sort(sortSpec);
+	if (sort === 'title') listingQuery.collation({ locale: 'en', strength: 2 });
+	const data = await listingQuery
 		.skip((page - 1) * limit)
 		.limit(limit)
 		.toArray();
@@ -164,7 +166,7 @@ router.get('/listings', validate({ query: browseQuerySchema }), async (req, res)
 	});
 });
 
-router.patch('/listing/:id', validate({ params: listingParamsSchema, body: listingUpdateSchema }), async (req, res, next) => {
+router.patch('/listing/:id', requireAuth, validate({ params: listingParamsSchema, body: listingUpdateSchema }), async (req, res, next) => {
 	const listings = getDb().collection('listings');
 	const listing = await listings.findOne({ _id: new ObjectId(req.params.id) });
 	if (!listing) return next(notFound('listing not found'));
@@ -188,7 +190,7 @@ router.patch('/listing/:id', validate({ params: listingParamsSchema, body: listi
 	res.json(updatedListing);
 });
 
-router.get('/listing/:id', validate({ params: listingParamsSchema }), async (req, res, next) => {
+router.get('/listing/:id', requireAuth, validate({ params: listingParamsSchema }), async (req, res, next) => {
 	const listing = await getDb().collection('listings').findOne({ _id: new ObjectId(req.params.id) });
 	if (!listing) return next(notFound('listing not found'));
 
@@ -216,7 +218,7 @@ router.get('/listing/:id/volunteers' , validate({params: listingParamsSchema}), 
     res.json(volunteers)
 })
 
-router.post('/listing/:id/volunteers' , validate({params: listingParamsSchema}), async (req, res, next) => {
+router.post('/listing/:id/volunteers' , requireAuth, validate({params: listingParamsSchema}), async (req, res, next) => {
 	const listings = getDb().collection('listings')
 
 	const result = await listings.findOneAndUpdate(
