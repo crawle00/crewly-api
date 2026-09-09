@@ -227,4 +227,16 @@ router.post('/listing/:id/volunteers' , validate({params: listingParamsSchema}),
 	res.json(result)
 })
 
+router.delete('/listing/:id/volunteers', validate({params: listingParamsSchema}), async (req, res, next) => {
+    const listings = getDb().collection('listings')
+
+    const result = await listings.findOneAndUpdate(
+        { _id: new ObjectId(req.params.id) },
+        { $pull: { volunteers: req.user._id } },
+        { returnDocument: "after" }
+    )
+
+    res.json(result)
+})
+
 export default router;

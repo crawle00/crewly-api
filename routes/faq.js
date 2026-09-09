@@ -66,18 +66,97 @@ router.get('/:listingId' , async(req , res) => {
                 }
             },
             {
+                $lookup: {
+                    from: 'replies',
+                    let: { questionId: '$_id' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $eq: ['$questionId', '$$questionId']
+                                }
+                            }
+                        },
+                        {
+                            $sort: {
+                                createdAt: 1
+                            }
+                        },
+                        {
+                            $lookup: {
+                                from: 'users',
+                                localField: 'userId',
+                                foreignField: '_id',
+                                as: 'replyUser'
+                            }
+                        },
+                        {
+                            $unwind: {
+                                path: '$replyUser',
+                                preserveNullAndEmptyArrays: true
+                            }
+                        },
+                        {
+                            $project: {
+                                _id: 1,
+                                reply: 1,
+                                createdAt: 1,
+                                firstName: '$replyUser.firstName',
+                                lastName: '$replyUser.lastName',
+                                pfp: '$replyUser.pfp'
+                            }
+                        }
+                    ], as: "replies"
+                }
+            },
+            {
                 $project: {
                     _id: 1,
                     listingId: 1,
                     question: 1,
                     createdAt: 1,
                     firstName: '$user.firstName',
-                    lastName: '$user.lastName'
+                    lastName: '$user.lastName',
+                    pfp: '$user.pfp',
+                    replies: 1
                 }
             }
         ]) .toArray()
 
+        if (!questions) {
+            return res.status(404).json({error: 'questions not found'})
+        }
+
         res.json(questions)
+})
+
+router.post('/:questionId/replies', async (req, res) => {
+    const { questionId } = req.params
+    const { reply } = req.body
+
+    const question = await getDb().collection('questions').findOne({
+        _id: new ObjectId(questionId)
+    })
+
+    if (!question) {
+        return res.status(404).json({ error: 'question not found' })
+    }
+
+    const newReply = {
+        questionId: new ObjectId(questionId),
+        userId: req.user._id,
+        reply,
+        createdAt: new Date()
+    }
+
+    newReply._id = (
+        await getDb().collection('replies').insertOne(newReply)
+    ).insertedId
+
+    if (!question) {
+            return res.status(404).json({error: 'question not found'})
+        }
+    res.status(201).json(newReply)
 })
 
 export default router
