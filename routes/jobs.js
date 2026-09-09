@@ -122,7 +122,7 @@ router.post('/list', requireAuth, validate({ body: listingSchema }), async (req,
 router.get('/listings', validate({ query: browseQuerySchema }), async (req, res) => {
 	const { page, limit, tag, tags, tagMode, clubId, startsBefore, startsAfter, endsBefore, endsAfter, sort, order } = req.query;
 	const requestedTags = [...new Set([...tag, ...tags])];
-	const filter = { isCancelled: { $ne: true } };
+	const filter = { isCancelled: false };
 	if (requestedTags.length > 0) {
 		filter.tags = tagMode === 'all' ? { $all: requestedTags } : { $in: requestedTags };
 	}

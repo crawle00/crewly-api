@@ -189,6 +189,12 @@ describe('GET /api/v1/jobs/listings', () => {
         startsAt: new Date('2099-01-03T10:00:00Z'), endsAt: new Date('2099-01-03T12:00:00Z'),
         createdAt: new Date('2026-01-03'), isCancelled: true,
       },
+      {
+        _id: new ObjectId(), title: 'Missing cancellation flag', clubId: clubOneId,
+        tags: ['community'], skillTags: [],
+        startsAt: new Date('2099-01-04T10:00:00Z'), endsAt: new Date('2099-01-04T12:00:00Z'),
+        createdAt: new Date('2026-01-04'),
+      },
     ]);
     return { clubOneId, clubTwoId };
   }
