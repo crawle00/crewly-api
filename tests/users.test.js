@@ -140,7 +140,9 @@ describe('GET /api/v1/users/:id', () => {
       pfp: null,
       bio: null,
       interests: [],
+      clubManagement: [],
       timeline: [],
+      createdAt: target.createdAt.toISOString(),
     });
   });
 
