@@ -17,6 +17,7 @@ const basicUser = (user) => ({
   lastName: user.lastName,
   pfp: user.pfp,
   bio: user.bio,
+  interests: user.interests,
   timeline: user.timeline,
 });
 
