@@ -14,6 +14,7 @@ const reportsSchema = z.object({
 const listingParamsSchema = z.object({
     listingId: z.string().refine((id) => ObjectId.isValid(id), 'invalid listing id')
 })
+
 router.post('/' , validate({body: reportsSchema}), async (req , res) => {
     const {listingId , reports} = req.body
     const listing = await getDb().collection('listings').findOne({
@@ -35,5 +36,50 @@ router.post('/' , validate({body: reportsSchema}), async (req , res) => {
     res.status(201).json(newReports)
 })
 
+router.get('/:listingId', async (req, res) => {
+    const { listingId } = req.params
+
+    const reports = await getDb().collection('reports')
+        .aggregate([
+            {
+                $match: {
+                    listingId: new ObjectId(listingId)
+                }
+            },
+            {
+                $sort: {
+                    createdAt: 1
+                }
+            },
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: 'userId',
+                    foreignField: '_id',
+                    as: 'user'
+                }
+            },
+            {
+                $unwind: {
+                    path: '$user',
+                    preserveNullAndEmptyArrays: true
+                }
+            },
+            {
+                $project: {
+                    _id: 1,
+                    listingId: 1,
+                    reports: 1,
+                    createdAt: 1,
+                    firstName: '$user.firstName',
+                    lastName: '$user.lastName',
+                    pfp: '$user.pfp'
+                }
+            }
+        ])
+        .toArray()
+
+    res.json(reports)
+})
 
 export default router

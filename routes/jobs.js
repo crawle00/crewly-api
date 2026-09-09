@@ -197,7 +197,7 @@ router.get('/listing/:id', requireAuth, validate({ params: listingParamsSchema }
 	res.json(listing);
 });
 
-router.get('/:listing/:id/volunteers' , requireAuth, validate({params: listingParamsSchema}), async (req , res , next) => {
+router.get('/listing/:id/volunteers' , validate({params: listingParamsSchema}), async (req , res , next) => {
     const listing = await getDb().collection('listings').findOne({
         _id: new ObjectId(req.params.id)
     })
@@ -226,6 +226,19 @@ router.post('/listing/:id/volunteers' , requireAuth, validate({params: listingPa
 		{ $addToSet: {volunteers: req.user._id} },
 		{ returnDocument: "after" }
 	)
+	res.json(result)
+})
+
+router.delete('/listing/:id/volunteers', validate({params: listingParamsSchema}), async (req, res, next) => {
+    const listings = getDb().collection('listings')
+
+    const result = await listings.findOneAndUpdate(
+        { _id: new ObjectId(req.params.id) },
+        { $pull: { volunteers: req.user._id } },
+        { returnDocument: "after" }
+    )
+
+    res.json(result)
 })
 
 export default router;

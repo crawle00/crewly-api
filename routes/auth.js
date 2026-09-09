@@ -37,7 +37,7 @@ const updateProfileSchema = z
 const loginSchema = z.object({
   email,
   password: z.string(),
-});
+}); 
 
 export const publicUser = (u) => ({
   _id: u._id,
