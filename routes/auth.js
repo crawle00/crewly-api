@@ -134,4 +134,23 @@ if (password) {
   res.json(publicUser(user));
 });
 
+router.delete('/me', requireAuth, async (req, res, next) => {
+  const db = getDb();
+  const userId = req.user._id;
+
+  await db.collection('clubs').updateMany(
+    { leaders: userId },
+    { $pull: { leaders: userId } },
+  );
+
+  await db.collection('listings').updateMany(
+    { volunteers: userId },
+    { $pull: { volunteers: userId } },
+  );
+
+  await db.collection('users').deleteOne({ _id: userId });
+
+  req.session.destroy((err) => (err ? next(err) : res.status(204).end()));
+});
+
 export default router;

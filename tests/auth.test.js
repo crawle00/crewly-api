@@ -209,13 +209,97 @@ describe('Auth Endpoints', () => {
     });
 
     it('should not leak the password hash in the response', async () => {
-  const agent = await registeredAgent('no-leak@example.com');
-  const res = await agent.patch('/api/v1/auth/me').send({
-    currentPassword: 'password123',
-    password: 'anotherpassword1',
+      const agent = await registeredAgent('no-leak@example.com');
+      const res = await agent.patch('/api/v1/auth/me').send({
+        currentPassword: 'password123',
+        password: 'anotherpassword1',
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.passwordHash).toBeUndefined();
+    });
   });
-  expect(res.status).toBe(200);
-  expect(res.body.passwordHash).toBeUndefined();
-});
+  describe('DELETE /api/v1/auth/me', () => {
+    async function registeredAgent(email) {
+      const agent = request.agent(app);
+      const res = await agent.post('/api/v1/auth/register').send({
+        firstName: 'Delete',
+        lastName: 'Me',
+        email,
+        password: 'password123',
+      });
+      return { agent, userId: res.body._id };
+    }
+
+    async function adminAgent(email = 'delete-admin@example.com') {
+      const { agent, userId } = await registeredAgent(email);
+      await global.testDb.collection('users').updateOne(
+        { email },
+        { $set: { isAdmin: true } },
+      );
+      return { agent, userId };
+    }
+
+    it('should reject unauthenticated requests', async () => {
+      const res = await request(app).delete('/api/v1/auth/me');
+      expect(res.status).toBe(401);
+    });
+
+    it('should delete the account and destroy the session', async () => {
+      const { agent } = await registeredAgent('delete-basic@example.com');
+      const deleteRes = await agent.delete('/api/v1/auth/me');
+      expect(deleteRes.status).toBe(204);
+
+      const meRes = await agent.get('/api/v1/auth/me');
+      expect(meRes.status).toBe(401);
+
+      const loginRes = await request(app).post('/api/v1/auth/login').send({
+        email: 'delete-basic@example.com',
+        password: 'password123',
+      });
+      expect(loginRes.status).toBe(401);
+    });
+
+    it('should remove the deleted user from any clubs they lead', async () => {
+      const { agent: admin } = await adminAgent();
+      const { agent: leaderAgent, userId: leaderId } = await registeredAgent('delete-leader@example.com');
+
+      const clubRes = await admin.post('/api/v1/clubs').send({ name: 'Cleanup Club' });
+      await admin.put(`/api/v1/clubs/${clubRes.body._id}/leaders/${leaderId}`);
+
+      const deleteRes = await leaderAgent.delete('/api/v1/auth/me');
+      expect(deleteRes.status).toBe(204);
+
+      const club = await global.testDb.collection('clubs').findOne({ name: 'Cleanup Club' });
+      expect(club.leaders).toEqual([]);
+    });
+
+    it('should remove the deleted user from any listing volunteer lists', async () => {
+      const { agent: admin } = await adminAgent('delete-admin-2@example.com');
+      const { agent: leaderAgent, userId: leaderId } = await registeredAgent('delete-listing-leader@example.com');
+      const { agent: volunteerAgent, userId: volunteerId } = await registeredAgent('delete-volunteer@example.com');
+
+      const clubRes = await admin.post('/api/v1/clubs').send({ name: 'Volunteer Cleanup Club' });
+      await admin.put(`/api/v1/clubs/${clubRes.body._id}/leaders/${leaderId}`);
+
+      const listingRes = await leaderAgent.post('/api/v1/jobs/list').send({
+        clubId: clubRes.body._id,
+        title: 'Cleanup Test Listing',
+        description: 'Testing volunteer cleanup on account deletion.',
+        location: { name: 'Somewhere', address: '', isRemote: true },
+        startsAt: '2099-01-01T10:00:00.000Z',
+        endsAt: '2099-01-01T12:00:00.000Z',
+      });
+
+      const volunteerRes = await volunteerAgent.post(`/api/v1/jobs/listing/${listingRes.body._id}/volunteers`);
+      expect(volunteerRes.status).toBe(200);
+      expect(volunteerRes.body.volunteers.map(String)).toContain(volunteerId);
+
+      const deleteRes = await volunteerAgent.delete('/api/v1/auth/me');
+      expect(deleteRes.status).toBe(204);
+
+      const listing = await global.testDb.collection('listings').findOne({ title: 'Cleanup Test Listing' });
+      expect(listing.volunteers).toEqual([]);
+    });
   });
+
 });

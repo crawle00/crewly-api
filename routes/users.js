@@ -18,6 +18,8 @@ const basicUser = (user) => ({
   pfp: user.pfp,
   bio: user.bio,
   interests: user.interests,
+  clubManagement: user.clubManagement,
+  createdAt: user.createdAt,
   timeline: user.timeline,
 });
 

@@ -197,48 +197,51 @@ router.get('/listing/:id', requireAuth, validate({ params: listingParamsSchema }
 	res.json(listing);
 });
 
-router.get('/listing/:id/volunteers' , validate({params: listingParamsSchema}), async (req , res , next) => {
-    const listing = await getDb().collection('listings').findOne({
-        _id: new ObjectId(req.params.id)
-    })
+router.get('/listing/:id/volunteers', validate({ params: listingParamsSchema }), async (req, res, next) => {
+	const listing = await getDb().collection('listings').findOne({
+		_id: new ObjectId(req.params.id)
+	})
 
-    if (!listing) {
-        return res.status(404).json({error: 'listing not found'})
-    }
+	if (!listing) {
+		return res.status(404).json({ error: 'listing not found' })
+	}
 
-    const volunteers = await getDb().collection('users').find({
-        _id: {$in: listing.volunteers}
-    })
-    .project({
-        firstName: 1, 
-        lastName: 1,
-        pfp: 1
-    }).toArray()
+	const volunteers = await getDb().collection('users').find({
+		_id: { $in: listing.volunteers }
+	})
+		.project({
+			firstName: 1,
+			lastName: 1,
+			pfp: 1
+		}).toArray()
 
-    res.json(volunteers)
+	res.json(volunteers)
 })
 
-router.post('/listing/:id/volunteers' , requireAuth, validate({params: listingParamsSchema}), async (req, res, next) => {
+router.post('/listing/:id/volunteers', validate({ params: listingParamsSchema }), async (req, res, next) => {
 	const listings = getDb().collection('listings')
 
 	const result = await listings.findOneAndUpdate(
 		{ _id: new ObjectId(req.params.id) },
-		{ $addToSet: {volunteers: req.user._id} },
+		{ $addToSet: { volunteers: req.user._id } },
 		{ returnDocument: "after" }
 	)
-	res.json(result)
+
+	if (!result) return next(notFound('listing not found'))  // ← new
+
+	res.json(result)                                          // ← new
 })
 
-router.delete('/listing/:id/volunteers', validate({params: listingParamsSchema}), async (req, res, next) => {
-    const listings = getDb().collection('listings')
+router.delete('/listing/:id/volunteers', validate({ params: listingParamsSchema }), async (req, res, next) => {
+	const listings = getDb().collection('listings')
 
-    const result = await listings.findOneAndUpdate(
-        { _id: new ObjectId(req.params.id) },
-        { $pull: { volunteers: req.user._id } },
-        { returnDocument: "after" }
-    )
+	const result = await listings.findOneAndUpdate(
+		{ _id: new ObjectId(req.params.id) },
+		{ $pull: { volunteers: req.user._id } },
+		{ returnDocument: "after" }
+	)
 
-    res.json(result)
+	res.json(result)
 })
 
 export default router;
