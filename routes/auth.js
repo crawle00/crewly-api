@@ -27,17 +27,22 @@ const updateProfileSchema = z
     firstName: nonEmpty,
     lastName: nonEmpty,
     email,
+    password: z.string().min(8),
+    currentPassword: z.string().min(8),
     pfp: z.string().nullable(),
     bio: z.string().trim().nullable(),
     interests: z.array(nonEmpty),
   })
   .partial()
-  .refine((data) => Object.keys(data).length > 0, { message: 'at least one field is required' });
-
+  .refine((data) => Object.keys(data).length > 0, { message: 'at least one field is required' })
+  .refine((data) => !data.password || Boolean(data.currentPassword), {
+    message: 'currentPassword is required to change password',
+    path: ['currentPassword'],
+  });
 const loginSchema = z.object({
   email,
   password: z.string(),
-}); 
+});
 
 export const publicUser = (u) => ({
   _id: u._id,
@@ -100,7 +105,7 @@ router.get('/me', requireAuth, (req, res) => {
 });
 
 router.patch('/me', requireAuth, validate({ body: updateProfileSchema }), async (req, res, next) => {
-  const updates = req.body;
+  const { password, currentPassword, ...updates } = req.body;
   const users = getDb().collection('users');
 
   if (updates.email && updates.email !== req.user.email) {
@@ -109,9 +114,19 @@ router.patch('/me', requireAuth, validate({ body: updateProfileSchema }), async 
     }
   }
 
+  const setFields = { ...updates, updatedAt: new Date() };
+if (password) {
+  const userWithHash = await users.findOne({ _id: req.user._id }, { projection: { passwordHash: 1 } });
+  const isCurrentPasswordValid = await bcrypt.compare(currentPassword ?? '', userWithHash?.passwordHash ?? '');
+  if (!isCurrentPasswordValid) {
+    return next(unauthorized('current password is incorrect'));
+  }
+  setFields.passwordHash = await bcrypt.hash(password, 10);
+}
+
   const user = await users.findOneAndUpdate(
     { _id: req.user._id },
-    { $set: { ...updates, updatedAt: new Date() } },
+    { $set: setFields },
     { returnDocument: 'after', projection: { passwordHash: 0 } },
   );
   if (!user) return next(notFound('user not found'));

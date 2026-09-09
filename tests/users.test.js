@@ -139,6 +139,7 @@ describe('GET /api/v1/users/:id', () => {
       lastName: 'Test',
       pfp: null,
       bio: null,
+      interests: [],
       timeline: [],
     });
   });
