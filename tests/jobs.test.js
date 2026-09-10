@@ -357,4 +357,63 @@ describe('PATCH /api/v1/jobs/listing/:id', () => {
 
     expect(res.status).toBe(403);
   });
+  it('rejects edits that move a listing into the past', async () => {
+    const { leaderAgent, listing } = await createLeaderListing();
+
+    const res = await leaderAgent.patch(`/api/v1/jobs/listing/${listing._id}`).send({
+      startsAt: '2020-01-01T10:00:00.000Z',
+    });
+
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('GET /api/v1/jobs/volunteering/:userId', () => {              // ← ADD THIS WHOLE BLOCK
+  it('returns listings a user has volunteered for, sorted by start date', async () => {
+    const { club } = await createClub();
+    const volunteer = await authenticatedRequest('volunteer-timeline@example.com');
+    const volunteerUser = await global.testDb.collection('users').findOne({ email: 'volunteer-timeline@example.com' });
+
+    await global.testDb.collection('listings').insertMany([
+      {
+        _id: new ObjectId(), title: 'Later event', clubId: club._id,
+        startsAt: new Date('2099-06-01T10:00:00Z'), endsAt: new Date('2099-06-01T12:00:00Z'),
+        volunteers: [volunteerUser._id], isCancelled: false, createdAt: new Date('2026-01-01'),
+      },
+      {
+        _id: new ObjectId(), title: 'Earlier event', clubId: club._id,
+        startsAt: new Date('2026-01-01T10:00:00Z'), endsAt: new Date('2026-01-01T12:00:00Z'),
+        volunteers: [volunteerUser._id], isCancelled: false, createdAt: new Date('2025-12-01'),
+      },
+      {
+        _id: new ObjectId(), title: 'Not volunteering for this one', clubId: club._id,
+        startsAt: new Date('2099-01-01T10:00:00Z'), endsAt: new Date('2099-01-01T12:00:00Z'),
+        volunteers: [], isCancelled: false, createdAt: new Date('2025-12-01'),
+      },
+    ]);
+
+    const res = await volunteer.get(`/api/v1/jobs/volunteering/${volunteerUser._id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((listing) => listing.title)).toEqual(['Earlier event', 'Later event']);
+  });
+
+  it('returns an empty list for a user with no volunteering history', async () => {
+    const viewer = await authenticatedRequest('no-history@example.com');
+    const user = await global.testDb.collection('users').findOne({ email: 'no-history@example.com' });
+
+    const res = await viewer.get(`/api/v1/jobs/volunteering/${user._id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([]);
+  });
+
+  it('rejects an invalid user id', async () => {
+    const viewer = await authenticatedRequest('invalid-id-check@example.com');
+
+    const res = await viewer.get('/api/v1/jobs/volunteering/not-an-id');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_FAILED');
+  });
 });

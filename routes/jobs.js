@@ -74,6 +74,10 @@ const listingParamsSchema = z.object({
 	id: objectId,
 });
 
+const userParamsSchema = z.object({
+	userId: objectId,
+});
+
 const browseQuerySchema = z.object({
 	page: z.coerce.number().int().min(1).default(1),
 	limit: z.coerce.number().int().min(1).max(250).default(50),
@@ -197,6 +201,15 @@ router.get('/listing/:id', requireAuth, validate({ params: listingParamsSchema }
 	res.json(listing);
 });
 
+router.get('/volunteering/:userId', validate({ params: userParamsSchema }), async (req, res) => {    // ← ADD THIS WHOLE ROUTE
+	const listings = await getDb().collection('listings')
+		.find({ volunteers: new ObjectId(req.params.userId) })
+		.sort({ startsAt: 1 })
+		.toArray();
+
+	res.json({ data: listings });
+});
+
 router.get('/listing/:id/volunteers', validate({ params: listingParamsSchema }), async (req, res, next) => {
 	const listing = await getDb().collection('listings').findOne({
 		_id: new ObjectId(req.params.id)
@@ -227,9 +240,9 @@ router.post('/listing/:id/volunteers', validate({ params: listingParamsSchema })
 		{ returnDocument: "after" }
 	)
 
-	if (!result) return next(notFound('listing not found'))  // ← new
+	if (!result) return next(notFound('listing not found'))
 
-	res.json(result)                                          // ← new
+	res.json(result)
 })
 
 router.delete('/listing/:id/volunteers', validate({ params: listingParamsSchema }), async (req, res, next) => {
