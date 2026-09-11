@@ -119,6 +119,15 @@ router.post('/list', requireAuth, validate({ body: listingSchema }), async (req,
 		createdAt: new Date(),
 	};
 	listing._id = (await getDb().collection('listings').insertOne(listing)).insertedId;
+	await getDb().collection('users').updateOne(
+		{ _id: req.user._id },
+		{ $push: { timeline: {
+			title: `Created a listing: ${listing.title}`,
+			description: null,
+			date: listing.createdAt,
+			createdAt: new Date(),
+		} } },
+	)
 
 	res.status(201).json(listing);
 });
@@ -231,7 +240,7 @@ router.get('/listing/:id/volunteers', validate({ params: listingParamsSchema }),
 	res.json(volunteers)
 })
 
-router.post('/listing/:id/volunteers', validate({ params: listingParamsSchema }), async (req, res, next) => {
+router.post('/listing/:id/volunteers', requireAuth, validate({ params: listingParamsSchema }), async (req, res, next) => {
 	const listings = getDb().collection('listings')
 
 	const result = await listings.findOneAndUpdate(
@@ -241,6 +250,15 @@ router.post('/listing/:id/volunteers', validate({ params: listingParamsSchema })
 	)
 
 	if (!result) return next(notFound('listing not found'))
+	await getDb().collection('users').updateOne(
+		{ _id: req.user._id },
+		{ $push: { timeline: {
+			title: `Volunteered for ${result.title}`,
+			description: result.location?.name || null,
+			date: result.startsAt,
+			createdAt: new Date(),
+		} } },
+	)
 
 	res.json(result)
 })

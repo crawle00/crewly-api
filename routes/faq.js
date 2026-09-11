@@ -195,6 +195,18 @@ router.post('/:questionId/replies', async (req, res) => {
         await getDb().collection('replies').insertOne(newReply)
     ).insertedId
 
+    if (String(question.userId) !== String(req.user._id)) {
+        await getDb().collection('users').updateOne(
+            { _id: question.userId },
+            { $push: { timeline: {
+                title: 'Your question got a reply',
+                description: question.question,
+                date: new Date(),
+                createdAt: new Date(),
+            } } },
+        )
+    }
+
     res.status(201).json(newReply)
 })
 
