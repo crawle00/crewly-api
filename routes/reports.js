@@ -71,6 +71,7 @@ router.get('/:listingId', async (req, res) => {
                     listingId: 1,
                     reports: 1,
                     createdAt: 1,
+                    userId: 1,
                     firstName: '$user.firstName',
                     lastName: '$user.lastName',
                     pfp: '$user.pfp'

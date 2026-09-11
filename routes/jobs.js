@@ -5,6 +5,7 @@ import { getDb } from '../db.js';
 import { forbidden, notFound } from '../middleware/errors.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
+import { createVerificationCode } from './verificationCodes.js';
 
 const router = Router();
 const nonEmpty = z.string().trim().min(1);
@@ -119,8 +120,9 @@ router.post('/list', requireAuth, validate({ body: listingSchema }), async (req,
 		createdAt: new Date(),
 	};
 	listing._id = (await getDb().collection('listings').insertOne(listing)).insertedId;
+	const verificationCode = await createVerificationCode(listing._id);
 
-	res.status(201).json(listing);
+	res.status(201).json({ ...listing, verificationCode: verificationCode.code });
 });
 
 router.get('/listings', validate({ query: browseQuerySchema }), async (req, res) => {
@@ -183,7 +185,10 @@ router.patch('/listing/:id', requireAuth, validate({ params: listingParamsSchema
 	const updates = req.body;
 	const startsAt = updates.startsAt ?? listing.startsAt;
 	const endsAt = updates.endsAt ?? listing.endsAt;
-	if (startsAt <= new Date()) return next(forbidden('listing start time must be in the future'));
+	// Only a new start time has to be in the future, so a listing that has already
+	// started can still be cancelled or have its other details edited.
+	const isMovingStart = Boolean(updates.startsAt) && updates.startsAt.getTime() !== new Date(listing.startsAt).getTime();
+	if (isMovingStart && startsAt <= new Date()) return next(forbidden('listing start time must be in the future'));
 	if (endsAt <= startsAt) return next(forbidden('listing end time must be after start time'));
 
 	const updatedListing = await listings.findOneAndUpdate(

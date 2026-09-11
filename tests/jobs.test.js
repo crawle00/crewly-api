@@ -104,6 +104,24 @@ describe('POST /api/v1/jobs/list', () => {
     expect(await global.testDb.collection('listings').findOne({ _id: new ObjectId(res.body._id) })).toEqual(
       expect.objectContaining({ clubId: new ObjectId(club._id), createdBy: leader._id, status: 'draft' }),
     );
+    expect(res.body.verificationCode).toMatch(/^\d{6}$/);
+    expect(await global.testDb.collection('verificationCodes').findOne({ listingId: new ObjectId(res.body._id) })).toEqual(
+      expect.objectContaining({ code: res.body.verificationCode }),
+    );
+  });
+
+  it('gives each new listing a different verification code', async () => {
+    const { admin, club } = await createClub();
+    const leader = await createUser();
+    await admin.put(`/api/v1/clubs/${club._id}/leaders/${leader._id}`);
+    const leaderAgent = request.agent(app);
+    await leaderAgent.post('/api/v1/auth/login').send({ email: 'leader@example.com', password: 'password123' });
+
+    const first = await leaderAgent.post('/api/v1/jobs/list').send({ ...listingDetails, clubId: club._id });
+    const second = await leaderAgent.post('/api/v1/jobs/list').send({ ...listingDetails, clubId: club._id });
+
+    expect(first.body.verificationCode).not.toBe(second.body.verificationCode);
+    expect(await global.testDb.collection('verificationCodes').countDocuments()).toBe(2);
   });
 
   it.each([
@@ -346,6 +364,38 @@ describe('PATCH /api/v1/jobs/listing/:id', () => {
     expect(res.body.error.code).toBe('VALIDATION_FAILED');
     const unchanged = await global.testDb.collection('listings').findOne({ _id: new ObjectId(listing._id) });
     expect(unchanged.volunteers).toEqual([volunteerId]);
+  });
+
+  it('allows a listing that has already started to be cancelled', async () => {
+    const { leaderAgent, listing } = await createLeaderListing();
+    await global.testDb.collection('listings').updateOne(
+      { _id: new ObjectId(listing._id) },
+      { $set: { startsAt: new Date(Date.now() - 60 * 60 * 1000), endsAt: new Date(Date.now() + 60 * 60 * 1000) } },
+    );
+
+    const res = await leaderAgent.patch(`/api/v1/jobs/listing/${listing._id}`).send({ isCancelled: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.isCancelled).toBe(true);
+  });
+
+  it('allows an in-progress listing to be edited when its unchanged times are sent back', async () => {
+    const { leaderAgent, listing } = await createLeaderListing();
+    const startsAt = new Date(Date.now() - 60 * 60 * 1000);
+    const endsAt = new Date(Date.now() + 60 * 60 * 1000);
+    await global.testDb.collection('listings').updateOne(
+      { _id: new ObjectId(listing._id) },
+      { $set: { startsAt, endsAt } },
+    );
+
+    const res = await leaderAgent.patch(`/api/v1/jobs/listing/${listing._id}`).send({
+      title: 'Renamed while running',
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.title).toBe('Renamed while running');
   });
 
   it('rejects edits that move a listing into the past', async () => {

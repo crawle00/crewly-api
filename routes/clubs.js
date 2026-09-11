@@ -98,15 +98,31 @@ router.patch('/:id', validate({ params: clubParamsSchema, body: clubSchema.parti
 });
 
 router.delete('/:id', validate({ params: clubParamsSchema }), async (req, res, next) => {
+	const db = getDb();
 	const clubId = new ObjectId(req.params.id);
-	const clubs = getDb().collection('clubs');
-	const result = await clubs.deleteOne({ _id: clubId });
+	const result = await db.collection('clubs').deleteOne({ _id: clubId });
 	if (result.deletedCount === 0) return next(notFound('club not found'));
 
-	await getDb().collection('users').updateMany(
-		{ clubManagement: clubId },
-		{ $pull: { clubManagement: clubId } },
-	);
+	// Cascade: the club's listings, plus the questions, replies, reports, verification codes,
+	// and timeline entries attached to them.
+	const listingIds = await db.collection('listings').distinct('_id', { clubId });
+	const questionIds = await db.collection('questions').distinct('_id', { listingId: { $in: listingIds } });
+
+	await Promise.all([
+		db.collection('listings').deleteMany({ clubId }),
+		db.collection('questions').deleteMany({ _id: { $in: questionIds } }),
+		db.collection('replies').deleteMany({ questionId: { $in: questionIds } }),
+		db.collection('reports').deleteMany({ listingId: { $in: listingIds } }),
+		db.collection('verificationCodes').deleteMany({ listingId: { $in: listingIds } }),
+		db.collection('users').updateMany(
+			{ timeline: { $in: listingIds } },
+			{ $pull: { timeline: { $in: listingIds } } },
+		),
+		db.collection('users').updateMany(
+			{ clubManagement: clubId },
+			{ $pull: { clubManagement: clubId } },
+		),
+	]);
 	res.status(204).end();
 });
 

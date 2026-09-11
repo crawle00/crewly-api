@@ -17,6 +17,7 @@ import jobsRouter from './routes/jobs.js';
 import usersRouter from './routes/users.js';
 import faqRouter from './routes/faq.js';
 import reportsRouter from './routes/reports.js'
+import verificationCodesRouter from './routes/verificationCodes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, 'secrets/atlas-credentials.env'), quiet: true });
@@ -83,6 +84,7 @@ export async function createApp(testDb) {
   v1.use('/faq' , requireAuth, faqRouter);
   v1.use('/reports' , requireAuth, reportsRouter);
   v1.use('/users', requireAuth, usersRouter);
+  v1.use('/verification-codes', requireAuth, verificationCodesRouter);
   app.use('/api/v1', v1);
 
   app.use(notFoundHandler);

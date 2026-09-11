@@ -54,7 +54,7 @@ export const publicUser = (u) => ({
   pfp: u.pfp,
   bio: u.bio,
   interests: u.interests,
-  timeline: u.timeline,
+  timeline: u.timeline ?? [],
 });
 
 router.post('/register', authLimiter, validate({ body: registerSchema }), async (req, res, next) => {

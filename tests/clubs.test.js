@@ -110,6 +110,43 @@ describe('Club administration', () => {
     expect((await global.testDb.collection('users').findOne({ _id: target._id })).clubManagement).toEqual([]);
   });
 
+  it('deletes the club\'s listings and their questions, replies, reports, and verification codes', async () => {
+    const agent = await adminRequest();
+    const clubRes = await agent.post('/api/v1/clubs').send({ name: 'Doomed Club' });
+    const otherClubRes = await agent.post('/api/v1/clubs').send({ name: 'Surviving Club' });
+    const clubId = new ObjectId(clubRes.body._id);
+    const otherClubId = new ObjectId(otherClubRes.body._id);
+
+    const listingId = new ObjectId();
+    const otherListingId = new ObjectId();
+    const questionId = new ObjectId();
+    await global.testDb.collection('listings').insertMany([
+      { _id: listingId, title: 'Doomed listing', clubId },
+      { _id: otherListingId, title: 'Surviving listing', clubId: otherClubId },
+    ]);
+    await global.testDb.collection('questions').insertOne({ _id: questionId, listingId, question: 'When?' });
+    await global.testDb.collection('replies').insertOne({ questionId, reply: 'Soon.' });
+    await global.testDb.collection('reports').insertOne({ listingId, reports: 'Feedback' });
+    await global.testDb.collection('verificationCodes').insertOne({ listingId, code: '123456' });
+    const volunteerId = new ObjectId();
+    await global.testDb.collection('users').insertOne({
+      _id: volunteerId,
+      email: 'volunteer@example.com',
+      timeline: [listingId, otherListingId],
+    });
+
+    const res = await agent.delete(`/api/v1/clubs/${clubId}`);
+
+    expect(res.status).toBe(204);
+    expect(await global.testDb.collection('listings').findOne({ _id: listingId })).toBeNull();
+    expect(await global.testDb.collection('questions').findOne({ _id: questionId })).toBeNull();
+    expect(await global.testDb.collection('replies').findOne({ questionId })).toBeNull();
+    expect(await global.testDb.collection('reports').findOne({ listingId })).toBeNull();
+    expect(await global.testDb.collection('verificationCodes').findOne({ listingId })).toBeNull();
+    expect((await global.testDb.collection('users').findOne({ _id: volunteerId })).timeline).toEqual([otherListingId]);
+    expect(await global.testDb.collection('listings').findOne({ _id: otherListingId })).not.toBeNull();
+  });
+
   it('updates a club for admins', async () => {
     const agent = await adminRequest();
     const clubRes = await agent.post('/api/v1/clubs').send({ name: 'Original Club' });

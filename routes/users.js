@@ -20,7 +20,7 @@ const basicUser = (user) => ({
   interests: user.interests,
   clubManagement: user.clubManagement,
   createdAt: user.createdAt,
-  timeline: user.timeline,
+  timeline: user.timeline ?? [],
 });
 
 const withoutPasswordHash = ({ passwordHash: _passwordHash, ...user }) => user;
@@ -70,7 +70,36 @@ router.get('/:id', validate({ params: userIdSchema }), async (req, res, next) =>
 
   if (!user) return next(notFound('user not found'));
 
-  res.json(req.user.isAdmin ? user : basicUser(user));
+  res.json(req.user.isAdmin ? { ...user, timeline: user.timeline ?? [] } : basicUser(user));
+});
+
+// The listings a user has checked in to, newest first. Listings that have since
+// been deleted simply drop out.
+router.get('/:id/timeline', validate({ params: userIdSchema }), async (req, res, next) => {
+  const db = getDb();
+  const user = await db.collection('users').findOne(
+    { _id: new ObjectId(req.params.id) },
+    { projection: { timeline: 1 } },
+  );
+  if (!user) return next(notFound('user not found'));
+
+  const data = await db.collection('listings').aggregate([
+    { $match: { _id: { $in: user.timeline ?? [] } } },
+    { $sort: { startsAt: -1, _id: 1 } },
+    { $lookup: { from: 'clubs', localField: 'clubId', foreignField: '_id', as: 'club' } },
+    {
+      $project: {
+        title: 1,
+        startsAt: 1,
+        endsAt: 1,
+        location: 1,
+        clubId: 1,
+        clubName: { $arrayElemAt: ['$club.name', 0] },
+      },
+    },
+  ]).toArray();
+
+  res.json({ data });
 });
 
 export default router;
