@@ -124,6 +124,30 @@ describe('POST /api/v1/jobs/list', () => {
   });
 });
 
+describe('POST /api/v1/jobs/list - timeline entry', () => {
+  it('adds a timeline entry to the leader who created the listing', async () => {
+    const { admin, club } = await createClub();
+    const leader = await createUser();
+    await admin.put(`/api/v1/clubs/${club._id}/leaders/${leader._id}`);
+    const leaderAgent = request.agent(app);
+    await leaderAgent.post('/api/v1/auth/login').send({
+      email: 'leader@example.com',
+      password: 'password123',
+    });
+
+    const res = await leaderAgent.post('/api/v1/jobs/list').send({ ...listingDetails, clubId: club._id });
+    expect(res.status).toBe(201);
+
+    const leaderUser = await global.testDb.collection('users').findOne({ _id: leader._id });
+    expect(leaderUser.timeline).toHaveLength(1);
+    expect(leaderUser.timeline[0]).toEqual(
+      expect.objectContaining({
+        title: `Created a listing: ${listingDetails.title}`,
+      }),
+    );
+  });
+});
+
 describe('GET /api/v1/jobs/listing/:id', () => {
   it('returns listing information to an authenticated user', async () => {
     const { admin, club } = await createClub();
@@ -476,6 +500,49 @@ describe('POST /api/v1/jobs/listing/:id/volunteers', () => {
   });
 });
 
+describe('POST /api/v1/jobs/listing/:id/volunteers - auth and timeline', () => {
+  async function createVolunteerListing() {
+    const { admin, club } = await createClub();
+    const leader = await createUser();
+    await admin.put(`/api/v1/clubs/${club._id}/leaders/${leader._id}`);
+
+    const leaderAgent = request.agent(app);
+    await leaderAgent.post('/api/v1/auth/login').send({
+      email: 'leader@example.com',
+      password: 'password123',
+    });
+
+    const created = await leaderAgent.post('/api/v1/jobs/list').send({ ...listingDetails, clubId: club._id });
+    return { leaderAgent, listing: created.body };
+  }
+
+  it('rejects unauthenticated volunteer requests', async () => {
+    const { listing } = await createVolunteerListing();
+
+    const res = await request(app).post(`/api/v1/jobs/listing/${listing._id}/volunteers`);
+
+    expect(res.status).toBe(401);
+  });
+
+  it('adds a timeline entry to the volunteer after signing up', async () => {
+    const { listing } = await createVolunteerListing();
+    const volunteer = await authenticatedRequest('volunteer@example.com');
+
+    const res = await volunteer.post(`/api/v1/jobs/listing/${listing._id}/volunteers`);
+    expect(res.status).toBe(200);
+
+    const volunteerUser = await global.testDb.collection('users').findOne({
+      email: 'volunteer@example.com',
+    });
+
+    expect(volunteerUser.timeline).toHaveLength(1);
+    expect(volunteerUser.timeline[0]).toEqual(
+      expect.objectContaining({
+        title: `Volunteered for ${listing.title}`,
+      }),
+    );
+  });
+});
 
 describe('DELETE /api/v1/jobs/listing/:id/volunteers', () => {
   async function createVolunteerListing() {

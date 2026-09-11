@@ -48,6 +48,62 @@ async function createListing() {
   return listingId;
 }
 
+describe('GET /api/v1/faq/mine/questions', () => {
+  it('rejects unauthenticated requests', async () => {
+    const res = await request(app).get('/api/v1/faq/mine/questions');
+    expect(res.status).toBe(401);
+  });
+
+  it("returns only the requesting user's questions that have at least one reply", async () => {
+    const listingId = await createListing();
+    const questioner = await authenticatedRequest('questioner@example.com');
+
+    const answeredQuestion = await questioner.post('/api/v1/faq').send({
+      listingId: listingId.toString(),
+      question: 'What should I bring?',
+    });
+    await questioner.post(`/api/v1/faq/${answeredQuestion.body._id}/replies`).send({
+      reply: 'Closed-toe shoes.',
+    });
+
+    await questioner.post('/api/v1/faq').send({
+      listingId: listingId.toString(),
+      question: 'Is parking available?',
+    });
+
+    const res = await questioner.get('/api/v1/faq/mine/questions');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0]).toEqual(
+      expect.objectContaining({
+        _id: answeredQuestion.body._id,
+        question: 'What should I bring?',
+        replyCount: 1,
+      }),
+    );
+  });
+
+  it("does not return another user's questions", async () => {
+    const listingId = await createListing();
+    const questioner = await authenticatedRequest('questioner@example.com');
+    const otherUser = await authenticatedRequest('other@example.com');
+
+    const question = await questioner.post('/api/v1/faq').send({
+      listingId: listingId.toString(),
+      question: 'What should I bring?',
+    });
+    await questioner.post(`/api/v1/faq/${question.body._id}/replies`).send({
+      reply: 'Closed-toe shoes.',
+    });
+
+    const res = await otherUser.get('/api/v1/faq/mine/questions');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+});
+
 describe('POST /api/v1/faq', () => {
   it('creates a question for an existing listing', async () => {
     const listingId = await createListing();
@@ -307,5 +363,50 @@ describe('POST /api/v1/faq/:questionId/replies', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('parent reply not found');
+  });
+});
+
+describe('POST /api/v1/faq/:questionId/replies - timeline entry', () => {
+  it('adds a timeline entry to the original asker when someone else replies', async () => {
+    const listingId = await createListing();
+    const questioner = await authenticatedRequest('questioner@example.com');
+    const replier = await authenticatedRequest('replier@example.com');
+
+    const question = await questioner.post('/api/v1/faq').send({
+      listingId: listingId.toString(),
+      question: 'What should I bring?',
+    });
+
+    await replier.post(`/api/v1/faq/${question.body._id}/replies`).send({
+      reply: 'Closed-toe shoes.',
+    });
+
+    const questionerUser = await global.testDb.collection('users').findOne({ email: 'questioner@example.com' });
+
+    expect(questionerUser.timeline).toHaveLength(1);
+    expect(questionerUser.timeline[0]).toEqual(
+      expect.objectContaining({
+        title: 'Your question got a reply',
+        description: 'What should I bring?',
+      }),
+    );
+  });
+
+  it('does not add a timeline entry when the asker replies to their own question', async () => {
+    const listingId = await createListing();
+    const questioner = await authenticatedRequest('questioner@example.com');
+
+    const question = await questioner.post('/api/v1/faq').send({
+      listingId: listingId.toString(),
+      question: 'What should I bring?',
+    });
+
+    await questioner.post(`/api/v1/faq/${question.body._id}/replies`).send({
+      reply: 'Never mind, found the answer.',
+    });
+
+    const questionerUser = await global.testDb.collection('users').findOne({ email: 'questioner@example.com' });
+
+    expect(questionerUser.timeline).toEqual([]);
   });
 });
