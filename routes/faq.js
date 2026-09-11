@@ -35,7 +35,27 @@ router.post('/' , validate({body: faqSchema}), async (req , res) => {
     newQuestion._id = (await getDb().collection('questions').insertOne(newQuestion)).insertedId
     res.status(201).json(newQuestion)
 })
+router.get('/mine/questions', async (req, res) => {
+    const questions = await getDb().collection('questions')
+        .aggregate([
+            { $match: { userId: req.user._id } },
+            { $sort: { createdAt: -1 } },
+            { $lookup: { from: 'replies', localField: '_id', foreignField: 'questionId', as: 'replies' } },
+            { $lookup: { from: 'listings', localField: 'listingId', foreignField: '_id', as: 'listing' } },
+            { $unwind: { path: '$listing', preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    _id: 1, listingId: 1, question: 1, createdAt: 1,
+                    listingTitle: '$listing.title',
+                    replyCount: { $size: '$replies' },
+                    latestReplyAt: { $max: '$replies.createdAt' },
+                },
+            },
+        ])
+        .toArray()
 
+    res.json(questions.filter((q) => q.replyCount > 0))
+})
 router.get('/:listingId' , async(req , res) => {
     const {listingId} = req.params
 
