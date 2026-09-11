@@ -2,9 +2,9 @@ import { Router } from 'express';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { getDb } from '../db.js';
-import { forbidden, notFound } from '../middleware/errors.js';
+import { forbidden } from '../middleware/errors.js';
 import { requireAuth } from '../middleware/auth.js';
-import { validate } from '../middleware/validate.js';
+import { validate, notFound } from '../middleware/validate.js';
 
 const router = Router();
 const nonEmpty = z.string().trim().min(1);
@@ -111,6 +111,7 @@ router.post('/list', requireAuth, validate({ body: listingSchema }), async (req,
 		createdBy: req.user._id,
 		status: 'draft',
 		volunteers: [],
+		reports: [],
 		isCancelled: false,
 		createdAt: new Date(),
 	};

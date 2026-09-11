@@ -2,17 +2,13 @@ import { Router } from "express"
 import { ObjectId} from "mongodb"
 import { z } from 'zod'
 import { getDb } from "../db.js"
-import { validate } from "../middleware/validate.js"
+import { validate, notFound } from "../middleware/validate.js"
 
 const router = Router()
 
 const faqSchema = z.object({
     listingId: z.string().refine((id) => ObjectId.isValid(id), 'invalid listing id'),
     question: z.string().trim().min(1),
-})
-
-const listingParamsSchema = z.object({
-    listingId: z.string().refine((id) => ObjectId.isValid(id), 'invalid listing id')
 })
 
 router.post('/' , validate({body: faqSchema}), async (req , res) => {
@@ -29,7 +25,8 @@ router.post('/' , validate({body: faqSchema}), async (req , res) => {
         listingId: new ObjectId(listingId),
         userId: req.user._id,
         question,
-        createdAt: new Date()
+        createdAt: new Date(),
+        replies: []
     }
 
     newQuestion._id = (await getDb().collection('questions').insertOne(newQuestion)).insertedId
@@ -66,64 +63,60 @@ router.get('/:listingId' , async(req , res) => {
                 }
             },
             {
-                $lookup: {
-                    from: 'replies',
-                    let: { questionId: '$_id' },
-                    pipeline: [
-                        {
-                            $match: {
-                                $expr: {
-                                    $eq: ['$questionId', '$$questionId']
-                                }
-                            }
-                        },
-                        {
-                            $sort: {
-                                createdAt: 1
-                            }
-                        },
-                        {
-                            $lookup: {
-                                from: 'users',
-                                localField: 'userId',
-                                foreignField: '_id',
-                                as: 'replyUser'
-                            }
-                        },
-                        {
-                            $unwind: {
-                                path: '$replyUser',
-                                preserveNullAndEmptyArrays: true
-                            }
-                        },
-                        {
-                            $project: {
-                                _id: 1,
-                                reply: 1,
-                                createdAt: 1,
-                                firstName: '$replyUser.firstName',
-                                lastName: '$replyUser.lastName',
-                                pfp: '$replyUser.pfp',
-                                parentReplyId: 1,
-                                questionId: 1
-                            }
-                        }
-                    ], as: "replies"
+                $unwind: {
+                    path: '$replies',
+                    preserveNullAndEmptyArrays: true
                 }
             },
             {
-                $project: {
-                    _id: 1,
-                    listingId: 1,
-                    question: 1,
-                    createdAt: 1,
-                    firstName: '$user.firstName',
-                    lastName: '$user.lastName',
-                    pfp: '$user.pfp',
-                    replies: 1
+                $sort: {
+                    'replies.createdAt': 1
+                }
+            },
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: 'replies.userId',
+                    foreignField: '_id',
+                    as: 'replyUser'
+                }
+            },
+            {
+                $unwind: {
+                    path: '$replyUser',
+                    preserveNullAndEmptyArrays: true
+                }
+            },
+            {
+                $group: {
+                    _id: '$_id',
+                    listingId: {$first: '$listingId'},
+                    question: {$first: '$question'},
+                    createdAt: {$first: '$createdAt'},
+                    firstName: {$first: '$user.firstName'},
+                    lastName: {$first: '$user.lastName'},
+                    pfp: {$first: '$user.pfp'},
+                        replies: {
+                            $push: {
+                                $cond: [
+                                    {$ne: ['$replies', null]},
+                                    {
+                                        _id: '$replies._id',
+                                        reply: '$replies.reply',
+                                        createdAt: '$replies.createdAt',
+                                        firstName: '$replyUser.firstName',
+                                        lastName: '$replyUser.lastName',
+                                        pfp: '$replyUser.pfp',
+                                        parentReplyId: '$replies.parentReplyId',
+                                        questionId: '$_id' 
+                                    },
+                                    '$$REMOVE'
+                                ]
+                            }
+                        }
                 }
             }
-        ]) .toArray()
+        ]).toArray()
 
         if (!questions) {
             return res.status(404).json({error: 'questions not found'})
@@ -133,49 +126,118 @@ router.get('/:listingId' , async(req , res) => {
 })
 
 router.post('/:questionId/replies', async (req, res) => {
-    const { questionId } = req.params
-    const { reply , parentReplyId } = req.body
 
-    const question = await getDb().collection('questions').findOne({
+    console.log("🔥 REPLY ROUTE HIT")
+    console.log("questionId:", req.params.questionId)
+    console.log("body:", req.body)
+
+    const { questionId } = req.params
+    const { reply, parentReplyId } = req.body
+
+    const questions = getDb().collection('questions')
+
+    const question = await questions.findOne({
         _id: new ObjectId(questionId)
     })
 
     if (!question) {
-        return res.status(404).json({ error: 'question not found' })
-    }
-
-    let parentId = null
-
-    if(parentReplyId) {
-            if (!ObjectId.isValid(parentReplyId)) {
-                return res.status(400).json({error: 'invalid parent reply id'})
-            }
-
-        const parentReply = await getDb().collection('replies').findOne({
-            _id: new ObjectId(parentReplyId),
-            questionId: new ObjectId(questionId)
+        return res.status(404).json({
+            error: 'question not found'
         })
-
-        if (!parentReply) {
-            return res.status(404).json({error: 'parent reply not found'})
-        }
-
-        parentId = new ObjectId(parentReplyId)
     }
 
     const newReply = {
-        questionId: new ObjectId(questionId),
+        _id: new ObjectId(),
         userId: req.user._id,
         reply,
         createdAt: new Date(),
-        parentReplyId: parentId
+        replies: []
     }
 
-    newReply._id = (
-        await getDb().collection('replies').insertOne(newReply)
-    ).insertedId
+    // Reply directly to the question
+    if (!parentReplyId) {
 
-    res.status(201).json(newReply)
+        const result = await questions.updateOne(
+            { _id: new ObjectId(questionId) },
+            {
+                $push: {
+                    replies: newReply
+                }
+            }
+        )
+
+        console.log("🔥 DIRECT REPLY UPDATE")
+        console.log("matched:", result.matchedCount)
+        console.log("modified:", result.modifiedCount)
+
+        return res.status(201).json(newReply)
+    }
+
+    // Reply to another reply
+    if (!ObjectId.isValid(parentReplyId)) {
+        return res.status(400).json({
+            error: 'invalid parent reply id'
+        })
+    }
+
+    const findReplyPath = (replies, targetId, path = []) => {
+
+        for (let i = 0; i < (replies || []).length; i++) {
+
+            const item = replies[i]
+
+            const currentPath = [...path, i]
+
+            if (String(item._id) === String(targetId)) {
+                return currentPath
+            }
+
+            const found = findReplyPath(
+                item.replies,
+                targetId,
+                currentPath
+            )
+
+            if (found) {
+                return found
+            }
+        }
+
+        return null
+    }
+
+    const path = findReplyPath(
+        question.replies,
+        parentReplyId
+    )
+
+    if (!path) {
+        return res.status(404).json({
+            error: 'parent reply not found'
+        })
+    }
+
+    const repliesPath =
+        `replies.${path.join('.replies.')}.replies`
+
+    console.log("🔥 NESTED REPLY PATH:", repliesPath)
+
+    const result = await questions.updateOne(
+        {
+            _id: new ObjectId(questionId)
+        },
+        {
+            $push: {
+                [repliesPath]: newReply
+            }
+        }
+    )
+
+    console.log("🔥 NESTED REPLY UPDATE")
+    console.log("matched:", result.matchedCount)
+    console.log("modified:", result.modifiedCount)
+
+    return res.status(201).json(newReply)
 })
 
 export default router

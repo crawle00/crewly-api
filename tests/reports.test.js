@@ -21,47 +21,34 @@ async function authenticatedRequest(email = 'viewer@example.com') {
   return agent;
 }
 
-async function createClub(name = 'Robotics Club') {
-  const admin = await authenticatedRequest('admin@example.com');
-
-  await global.testDb.collection('users').updateOne(
-    { email: 'admin@example.com' },
-    { $set: { isAdmin: true } },
-  );
-
-  const response = await admin
-    .post('/api/v1/clubs')
-    .send({ name, pfp: 'robotics.png' });
-
-  return { admin, club: response.body };
-}
-
 async function createListing() {
-  const { admin, club } = await createClub();
+  const listingId = new ObjectId();
+  const userId = new ObjectId();
 
-  const leader = await authenticatedRequest('leader@example.com');
-
-  const leaderUser = await global.testDb.collection('users').findOne({
-    email: 'leader@example.com',
+  await global.testDb.collection('users').insertOne({
+    _id: userId,
+    firstName: 'Listing',
+    lastName: 'Owner',
+    email: `owner-${listingId}@example.com`,
   });
 
-  await admin.put(`/api/v1/clubs/${club._id}/leaders/${leaderUser._id}`);
-
-  const listing = await global.testDb.collection('listings').insertOne({
+  await global.testDb.collection('listings').insertOne({
+    _id: listingId,
     title: 'Build a robot',
     description: 'Help students build a line-following robot.',
-    clubId: new ObjectId(club._id),
-    createdBy: leaderUser._id,
+    createdBy: userId,
     status: 'draft',
     volunteers: [],
+    reports: [],
     isCancelled: false,
     startsAt: new Date('2099-01-01T10:00:00.000Z'),
     endsAt: new Date('2099-01-01T12:00:00.000Z'),
     createdAt: new Date(),
   });
 
-  return listing.insertedId;
+  return listingId;
 }
+
 
 describe('POST /api/v1/reports', () => {
   it('creates a report for an existing listing', async () => {
@@ -70,30 +57,38 @@ describe('POST /api/v1/reports', () => {
 
     const res = await user.post('/api/v1/reports').send({
       listingId: listingId.toString(),
-      reports: 'This listing contains inappropriate content.',
+      reports: 'This listing contains incorrect information.',
     });
 
     expect(res.status).toBe(201);
+
     expect(res.body).toEqual(
       expect.objectContaining({
-        listingId: listingId.toString(),
-        reports: 'This listing contains inappropriate content.',
+        reports: 'This listing contains incorrect information.',
       }),
     );
 
+    expect(res.body._id).toBeDefined();
     expect(res.body.userId).toBeDefined();
     expect(res.body.createdAt).toBeDefined();
 
-    const report = await global.testDb.collection('reports').findOne({
-      _id: new ObjectId(res.body._id),
-    });
+    const listing = await global.testDb
+      .collection('listings')
+      .findOne({
+        _id: listingId,
+      });
 
-    expect(report).toEqual(
+    expect(listing.reports).toHaveLength(1);
+
+    expect(listing.reports[0]).toEqual(
       expect.objectContaining({
-        listingId,
-        reports: 'This listing contains inappropriate content.',
+        _id: new ObjectId(res.body._id),
+        reports: 'This listing contains incorrect information.',
       }),
     );
+
+    expect(listing.reports[0].userId).toBeDefined();
+    expect(listing.reports[0].createdAt).toBeDefined();
   });
 
   it('returns not found when the listing does not exist', async () => {
@@ -101,7 +96,7 @@ describe('POST /api/v1/reports', () => {
 
     const res = await user.post('/api/v1/reports').send({
       listingId: new ObjectId().toString(),
-      reports: 'This listing contains inappropriate content.',
+      reports: 'This listing does not exist.',
     });
 
     expect(res.status).toBe(404);
@@ -111,43 +106,77 @@ describe('POST /api/v1/reports', () => {
 
 
 describe('GET /api/v1/reports/:listingId', () => {
-  it('returns reports for a listing with user information', async () => {
+  it('returns reports with user information', async () => {
     const listingId = await createListing();
 
     const reporter = await authenticatedRequest('reporter@example.com');
 
-    await reporter.post('/api/v1/reports').send({
-      listingId: listingId.toString(),
-      reports: 'First report',
-    });
-
-    await reporter.post('/api/v1/reports').send({
-      listingId: listingId.toString(),
-      reports: 'Second report',
-    });
+    const reportRes = await reporter
+      .post('/api/v1/reports')
+      .send({
+        listingId: listingId.toString(),
+        reports: 'This listing contains incorrect information.',
+      });
 
     const res = await reporter.get(
       `/api/v1/reports/${listingId}`,
     );
 
     expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(2);
+
+    expect(res.body).toHaveLength(1);
 
     expect(res.body[0]).toEqual(
       expect.objectContaining({
+        _id: reportRes.body._id,
         listingId: listingId.toString(),
-        reports: 'First report',
+        reports: 'This listing contains incorrect information.',
         firstName: 'Viewer',
         lastName: 'User',
       }),
     );
 
+    expect(res.body[0].createdAt).toBeDefined();
+  });
+
+  it('returns multiple reports in creation order', async () => {
+    const listingId = await createListing();
+
+    const reporter = await authenticatedRequest('reporter@example.com');
+
+    const firstReport = await reporter
+      .post('/api/v1/reports')
+      .send({
+        listingId: listingId.toString(),
+        reports: 'First report.',
+      });
+
+    const secondReport = await reporter
+      .post('/api/v1/reports')
+      .send({
+        listingId: listingId.toString(),
+        reports: 'Second report.',
+      });
+
+    const res = await reporter.get(
+      `/api/v1/reports/${listingId}`,
+    );
+
+    expect(res.status).toBe(200);
+
+    expect(res.body).toHaveLength(2);
+
+    expect(res.body[0]).toEqual(
+      expect.objectContaining({
+        _id: firstReport.body._id,
+        reports: 'First report.',
+      }),
+    );
+
     expect(res.body[1]).toEqual(
       expect.objectContaining({
-        listingId: listingId.toString(),
-        reports: 'Second report',
-        firstName: 'Viewer',
-        lastName: 'User',
+        _id: secondReport.body._id,
+        reports: 'Second report.',
       }),
     );
   });

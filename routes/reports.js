@@ -2,7 +2,7 @@ import { Router } from "express"
 import { ObjectId} from "mongodb"
 import { z } from 'zod'
 import { getDb } from "../db.js"
-import { validate } from "../middleware/validate.js"
+import { validate, notFound } from "../middleware/validate.js"
 
 const router = Router()
 
@@ -11,29 +11,32 @@ const reportsSchema = z.object({
     reports: z.string().trim().min(1),
 })
 
-const listingParamsSchema = z.object({
-    listingId: z.string().refine((id) => ObjectId.isValid(id), 'invalid listing id')
-})
 
-router.post('/' , validate({body: reportsSchema}), async (req , res) => {
+router.post('/' , validate({body: reportsSchema}), async (req , res, next) => {
     const {listingId , reports} = req.body
-    const listing = await getDb().collection('listings').findOne({
-        _id: new ObjectId(listingId)
-    })
+    const listing = getDb().collection('listings')
 
     if (!listing) {
         return res.status(404).json({error: 'listing not found'})
     }
     
-    const newReports = {
-        listingId: new ObjectId(listingId),
+    const newReport = {
+        _id: new ObjectId(),
         userId: req.user._id,
         reports,
         createdAt: new Date()
     }
 
-    newReports._id = (await getDb().collection('reports').insertOne(newReports)).insertedId
-    res.status(201).json(newReports)
+    const result = await listing.findOneAndUpdate(
+        { _id: new ObjectId(listingId) },
+        { $push: { reports: newReport } },
+        { returnDocument: 'after' }
+    )
+
+    if(!result) {
+        return next(notFound('listing not found'))
+    }
+    res.status(201).json(newReport)
 })
 
 router.get('/:listingId', async (req, res) => {
@@ -43,18 +46,16 @@ router.get('/:listingId', async (req, res) => {
         .aggregate([
             {
                 $match: {
-                    listingId: new ObjectId(listingId)
+                    _id: new ObjectId(listingId)
                 }
             },
             {
-                $sort: {
-                    createdAt: 1
-                }
+                $unwind: '$reports'
             },
             {
                 $lookup: {
                     from: 'users',
-                    localField: 'userId',
+                    localField: 'reports.userId',
                     foreignField: '_id',
                     as: 'user'
                 }
@@ -67,13 +68,18 @@ router.get('/:listingId', async (req, res) => {
             },
             {
                 $project: {
-                    _id: 1,
-                    listingId: 1,
-                    reports: 1,
-                    createdAt: 1,
+                    _id: '$reports._id',
+                    listingId: '$_id',
+                    reports: '$reports.reports',
+                    createdAt: '$reports.createdAt',
                     firstName: '$user.firstName',
                     lastName: '$user.lastName',
                     pfp: '$user.pfp'
+                }
+            },
+            {
+                $sort: {
+                    createdAt: 1
                 }
             }
         ])

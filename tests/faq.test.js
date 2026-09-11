@@ -39,6 +39,7 @@ async function createListing() {
     createdBy: userId,
     status: 'draft',
     volunteers: [],
+    reports: [],
     isCancelled: false,
     startsAt: new Date('2099-01-01T10:00:00.000Z'),
     endsAt: new Date('2099-01-01T12:00:00.000Z'),
@@ -47,6 +48,7 @@ async function createListing() {
 
   return listingId;
 }
+
 
 describe('POST /api/v1/faq', () => {
   it('creates a question for an existing listing', async () => {
@@ -59,24 +61,30 @@ describe('POST /api/v1/faq', () => {
     });
 
     expect(res.status).toBe(201);
+
     expect(res.body).toEqual(
       expect.objectContaining({
         listingId: listingId.toString(),
         question: 'What should I bring?',
+        replies: [],
       }),
     );
 
+    expect(res.body._id).toBeDefined();
     expect(res.body.userId).toBeDefined();
     expect(res.body.createdAt).toBeDefined();
 
-    const question = await global.testDb.collection('questions').findOne({
-      _id: new ObjectId(res.body._id),
-    });
+    const question = await global.testDb
+      .collection('questions')
+      .findOne({
+        _id: new ObjectId(res.body._id),
+      });
 
     expect(question).toEqual(
       expect.objectContaining({
         listingId,
         question: 'What should I bring?',
+        replies: [],
       }),
     );
   });
@@ -96,7 +104,7 @@ describe('POST /api/v1/faq', () => {
 
 
 describe('GET /api/v1/faq/:listingId', () => {
-  it('returns questions with user information and replies', async () => {
+  it('returns questions with user information and nested replies', async () => {
     const listingId = await createListing();
 
     const questioner = await authenticatedRequest('questioner@example.com');
@@ -108,10 +116,24 @@ describe('GET /api/v1/faq/:listingId', () => {
 
     const questionId = questionRes.body._id;
 
-    const replyRes = await questioner
+    const reply1Res = await questioner
       .post(`/api/v1/faq/${questionId}/replies`)
       .send({
         reply: 'You should bring closed-toe shoes.',
+      });
+
+    const reply2Res = await questioner
+      .post(`/api/v1/faq/${questionId}/replies`)
+      .send({
+        reply: 'Are sneakers okay?',
+        parentReplyId: reply1Res.body._id,
+      });
+
+    const reply3Res = await questioner
+      .post(`/api/v1/faq/${questionId}/replies`)
+      .send({
+        reply: 'Yes, sneakers are fine.',
+        parentReplyId: reply2Res.body._id,
       });
 
     const res = await questioner.get(
@@ -133,16 +155,47 @@ describe('GET /api/v1/faq/:listingId', () => {
 
     expect(res.body[0].replies).toHaveLength(1);
 
-    expect(res.body[0].replies[0]).toEqual(
+    const firstReply = res.body[0].replies[0];
+
+    expect(firstReply).toEqual(
       expect.objectContaining({
-        _id: replyRes.body._id,
+        _id: reply1Res.body._id,
         questionId,
         reply: 'You should bring closed-toe shoes.',
-        parentReplyId: null,
         firstName: 'Viewer',
         lastName: 'User',
       }),
     );
+
+    expect(firstReply.replies).toHaveLength(1);
+
+    const secondReply = firstReply.replies[0];
+
+    expect(secondReply).toEqual(
+      expect.objectContaining({
+        _id: reply2Res.body._id,
+        questionId,
+        reply: 'Are sneakers okay?',
+        firstName: 'Viewer',
+        lastName: 'User',
+      }),
+    );
+
+    expect(secondReply.replies).toHaveLength(1);
+
+    const thirdReply = secondReply.replies[0];
+
+    expect(thirdReply).toEqual(
+      expect.objectContaining({
+        _id: reply3Res.body._id,
+        questionId,
+        reply: 'Yes, sneakers are fine.',
+        firstName: 'Viewer',
+        lastName: 'User',
+      }),
+    );
+
+    expect(thirdReply.replies).toEqual([]);
   });
 
   it('returns an empty array when the listing has no questions', async () => {
@@ -186,23 +239,31 @@ describe('POST /api/v1/faq/:questionId/replies', () => {
       });
 
     expect(res.status).toBe(201);
+
     expect(res.body).toEqual(
       expect.objectContaining({
-        questionId,
         reply: 'Closed-toe shoes are required.',
-        parentReplyId: null,
+        replies: [],
       }),
     );
 
-    const reply = await global.testDb.collection('replies').findOne({
-      _id: new ObjectId(res.body._id),
-    });
+    expect(res.body._id).toBeDefined();
+    expect(res.body.userId).toBeDefined();
+    expect(res.body.createdAt).toBeDefined();
 
-    expect(reply).toEqual(
+    const question = await global.testDb
+      .collection('questions')
+      .findOne({
+        _id: new ObjectId(questionId),
+      });
+
+    expect(question.replies).toHaveLength(1);
+
+    expect(question.replies[0]).toEqual(
       expect.objectContaining({
-        questionId: new ObjectId(questionId),
+        _id: new ObjectId(res.body._id),
         reply: 'Closed-toe shoes are required.',
-        parentReplyId: null,
+        replies: [],
       }),
     );
   });
@@ -224,21 +285,75 @@ describe('POST /api/v1/faq/:questionId/replies', () => {
       });
 
     expect(childRes.status).toBe(201);
+
     expect(childRes.body).toEqual(
       expect.objectContaining({
-        questionId,
         reply: 'Are sneakers okay?',
-        parentReplyId: parentRes.body._id,
+        replies: [],
       }),
     );
 
-    const childReply = await global.testDb.collection('replies').findOne({
-      _id: new ObjectId(childRes.body._id),
-    });
+    const question = await global.testDb
+      .collection('questions')
+      .findOne({
+        _id: new ObjectId(questionId),
+      });
 
-    expect(childReply.parentReplyId).toEqual(
-      new ObjectId(parentRes.body._id),
+    expect(question.replies).toHaveLength(1);
+
+    expect(question.replies[0].replies).toHaveLength(1);
+
+    expect(question.replies[0].replies[0]).toEqual(
+      expect.objectContaining({
+        _id: new ObjectId(childRes.body._id),
+        reply: 'Are sneakers okay?',
+        replies: [],
+      }),
     );
+  });
+
+  it('creates a deeply nested reply', async () => {
+    const { questionId, user } = await createQuestion();
+
+    const reply1 = await user
+      .post(`/api/v1/faq/${questionId}/replies`)
+      .send({
+        reply: 'First reply.',
+      });
+
+    const reply2 = await user
+      .post(`/api/v1/faq/${questionId}/replies`)
+      .send({
+        reply: 'Second reply.',
+        parentReplyId: reply1.body._id,
+      });
+
+    const reply3 = await user
+      .post(`/api/v1/faq/${questionId}/replies`)
+      .send({
+        reply: 'Third reply.',
+        parentReplyId: reply2.body._id,
+      });
+
+    expect(reply3.status).toBe(201);
+
+    const question = await global.testDb
+      .collection('questions')
+      .findOne({
+        _id: new ObjectId(questionId),
+      });
+
+    expect(question.replies[0].reply).toBe(
+      'First reply.',
+    );
+
+    expect(question.replies[0].replies[0].reply).toBe(
+      'Second reply.',
+    );
+
+    expect(
+      question.replies[0].replies[0].replies[0].reply,
+    ).toBe('Third reply.');
   });
 
   it('returns not found when the question does not exist', async () => {
